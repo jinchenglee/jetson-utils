@@ -129,6 +129,7 @@ install(EXPORT jetson-utilsConfig DESTINATION share/jetson-utils/cmake)
 add_subdirectory(python)
 add_subdirectory(video/video-viewer)
 
+add_subdirectory(camera/v4l2-console)
 #add_subdirectory(camera/camera-viewer)
 #add_subdirectory(display/gl-display-test)
 #add_subdirectory(network/webrtc-server)

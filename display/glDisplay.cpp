@@ -504,6 +504,8 @@ glTexture* glDisplay::allocTexture( uint32_t width, uint32_t height, imageFormat
 		glFormat = GL_RGB32F_ARB;
 	else if( format == IMAGE_RGBA32F )
 		glFormat = GL_RGBA32F_ARB;
+	else if( format == IMAGE_GRAY8 )
+		glFormat = GL_LUMINANCE8;
 	else
 	{
 		LogError(LOG_GL "glDisplay::Render() -- unsupported image format (%s)\n", imageFormatToStr(format));
@@ -600,7 +602,11 @@ void glDisplay::RenderImage( void* img, uint32_t width, uint32_t height, imageFo
 
 	if( tex_map != NULL )
 	{
+		printf("Copy img_dev to GL memory.\n");
 		CUDA(cudaMemcpy(tex_map, img, interopTex->GetSize(), cudaMemcpyDeviceToDevice));
+		// FIXME: When img is still on host to be displayed 
+		//CUDA(cudaMemcpy(tex_map, img, interopTex->GetSize(), cudaMemcpyHostToDevice));
+
 		//CUDA(cudaDeviceSynchronize());
 		interopTex->Unmap();
 	}
