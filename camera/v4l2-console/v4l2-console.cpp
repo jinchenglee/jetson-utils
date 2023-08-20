@@ -21,10 +21,12 @@
  */
 
 #include "v4l2Camera.h"
+#include "glDisplay.h"
+#include "NvAnalysis.h"
 
 #include <stdio.h>
 #include <signal.h>
-//#include <unistd.h>
+#include <cuda.h>
 
 
 bool signal_recieved = false;
@@ -83,6 +85,18 @@ int main( int argc, char** argv )
 	printf("   height:  %u\n", camera->GetHeight());
 	printf("    depth:  %u (bpp)\n", camera->GetPixelDepth());
 	
+
+	/*
+	 * create openGL window
+	 */
+	glDisplay* display = glDisplay::Create("", camera->GetPitch(), camera->GetHeight(), 0.f, 0.f, 0.f, 0.f);
+	
+	if( !display )
+	{
+		printf("\nv4l2-display:  failed to create openGL display\n");
+		return 0;
+	}
+
 	
 	/*
 	 * start streaming
@@ -94,8 +108,14 @@ int main( int argc, char** argv )
 	}
 	
 	printf("\nv4l2-console:  camera '%s' open for streaming\n", dev_path);
+
+	// Device memory for CUDA processing.
+	uint8_t* img_dev = nullptr;
+	if( CUDA(cudaMalloc(&img_dev, camera->GetPitch()*camera->GetHeight())) )
+		printf("cudaMalloc failed!\n");
 	
 	
+	uint32_t img_cnt = 0;
 	while( !signal_recieved )
 	{
 		uint8_t* img = (uint8_t*)camera->Capture(500);
@@ -107,43 +127,54 @@ int main( int argc, char** argv )
 		}
 		else
 		{
-			printf("recieved new video frame\n");
-			
-#if 0
-			static int num_frames = 0;
-			
-			const int width  = camera->GetWidth();
-			const int height = camera->GetHeight();
-			
-			QImage qImg(width, height, QImage::Format_RGB32);
-			
-			for( int y=0; y < height; y++ )
-			{
-				for( int x=0; x < width; x++ )
-				{
-					const int value = img[y * width + x];
-					if( value != 0 )
-						printf("%i %i  %i\n", x, y, value);
-					qImg.setPixel(x, y, qRgb(value, value, value));
-				}
+			//printf("recieved new video frame\n");
+
+			if (img_cnt==0) {
+				FILE *fout = fopen("frame.raw", "wb");
+				fwrite(img, camera->GetPitch()*camera->GetHeight(), 1, fout);
+				fclose(fout);
 			}
-			
-			char output_filename[64];
-			sprintf(output_filename, "camera-%u.jpg", num_frames);
-			
-			qImg.save(QString(output_filename));
-			num_frames++;
-#endif
+
+			img_cnt++;
+
+			// Copy img to device
+			printf("Copy img to img_dev.\n");
+			CUDA(cudaMemcpy(img_dev, img, camera->GetPitch()*camera->GetHeight(), cudaMemcpyHostToDevice));
+
+			// CUDA proc
+        	decoupleLR((CUdeviceptr) img_dev, camera->GetPitch());
+
+			// update display
+			if( display != NULL )
+			{
+				//display->Render((uint8_t*)img, camera->GetWidth(), camera->GetHeight(), IMAGE_RGBA8);
+				display->RenderOnce((uint8_t*)img_dev, camera->GetPitch(), camera->GetHeight(), IMAGE_GRAY8, 0, 0);
+
+				// update status bar
+				char str[256];
+				sprintf(str, "v4l2-console (%ux%u) | %.0f FPS", camera->GetWidth(), camera->GetHeight(), display->GetFPS());
+				display->SetTitle(str);	
+
+				// check if the user quit
+				if( display->IsClosed() )
+					signal_recieved = true;
+			}
+
 		}
 			
 	}
-	
-	printf("\nv4l2-console:  un-initializing video device '%s'\n", dev_path);
 	
 	
 	/*
 	 * shutdown the camera device
 	 */
+	if( display != NULL )
+	{
+		delete display;
+		display = NULL;
+	}
+
+	printf("\nv4l2-console:  un-initializing video device '%s'\n", dev_path);
 	if( camera != NULL )
 	{
 		delete camera;
