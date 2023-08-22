@@ -29,6 +29,13 @@
 #ifndef __NVANALYSIS_H
 #define __NVANALYSIS_H
 
+#define BOX_W 32
+#define BOX_H 32
+
+#define IMG_W 752
+#define IMG_H 480
+
+
 typedef enum {
     COLOR_FORMAT_RGB,
     COLOR_FORMAT_BGR,
@@ -41,6 +48,7 @@ int addLabels(CUdeviceptr pDevPtr, int pitch);
 
 int decoupleLR(CUdeviceptr pDevPtr, int pitch);
 //int decoupleLR(unsigned char* pDevPtr, int pitch);
+int remap(const uint8_t* src, uint8_t* dst, const float* mapx, const float* mapy, int img_pitch);
 
 int convertIntToFloat(CUdeviceptr pDevPtr,
                                 int width,
