@@ -31,22 +31,16 @@
 
 #include <stdio.h>
 
-#define BOX_W 32
-#define BOX_H 32
-
-#define IMG_W 1504
-#define IMG_H 480
-
 __global__ void
 decoupleLRKernel(int *pDevPtr, int pitch)
 {
     int col = threadIdx.x;
     int row = blockIdx.x;
 
-    __shared__ char line[IMG_W];
+    __shared__ char line[IMG_W*2];
 
     // Boundary guard.
-    if ((col > ((IMG_W + 1) / 2)) || (row > (IMG_H -1))) {
+    if ((col > ((IMG_W*2 + 1) / 2)) || (row > (IMG_H -1))) {
         return;
     }
 
@@ -55,7 +49,7 @@ decoupleLRKernel(int *pDevPtr, int pitch)
     // Use thread 0 of each block to load line into shared mem.
     if ((!col)) {
         // Copy line.
-        memcpy(line, pLineBegin, IMG_W);
+        memcpy(line, pLineBegin, IMG_W*2);
     }
 
     // Make sure all data are already read before writing.
@@ -65,7 +59,7 @@ decoupleLRKernel(int *pDevPtr, int pitch)
     // Write pixel to correct position.
     // Remember to process two pixels per thread!
     pLineBegin[col] = line[2*col];
-    pLineBegin[IMG_W / 2 + col] = line[2*col+1];
+    pLineBegin[(IMG_W*2) / 2 + col] = line[2*col+1];
 
     __syncthreads();
 
@@ -77,7 +71,7 @@ decoupleLR(CUdeviceptr pDevPtr, int pitch)
 {
     // Process a whole image line per block, but threads per block has 1k limit.
     // So each thread processes two adjacent pixels.
-    dim3 threadsPerBlock((IMG_W + 1)/2);
+    dim3 threadsPerBlock((IMG_W*2)/2);
     dim3 blocks(IMG_H);
 
     //printf("pitch=%d\n", pitch);
@@ -85,6 +79,50 @@ decoupleLR(CUdeviceptr pDevPtr, int pitch)
 
     return 0;
 }
+
+
+// Remap kernel modified from https://github.com/Wizapply/OvrvisionPro/blob/master/build/linux/CUDA/Remap.cu.
+__global__ void remap_kernel(const uint8_t* src, uint8_t* dst, const float* mapx, const float* mapy, int img_pitch)
+{
+    const int x = blockDim.x * blockIdx.x + threadIdx.x;
+    const int y = blockDim.y * blockIdx.y + threadIdx.y;
+
+    if (x < IMG_W && y < IMG_H)
+    {
+        int step = y * IMG_W + x;
+        float xcoo = mapx[step];
+        float ycoo = mapy[step];
+        int X = trunc(xcoo);
+        int Y = trunc(ycoo);
+        float xfrac = xcoo - X;
+        float yfrac = ycoo - Y;
+        if (0 <= X && X < IMG_W && 0 <= Y && Y < IMG_H)
+        {
+            int p00 = src[Y * img_pitch + X];
+            int p10 = src[(Y + 1) * img_pitch + X];
+            int p01 = src[Y * img_pitch + X + 1];
+            int p11 = src[(Y + 1) * img_pitch + X + 1];
+
+            // bilinear interpolation 
+            float tmp = ((float)p00 * (1.f - xfrac) + (float)p01 * xfrac) * (1.f - yfrac) 
+                        + ((float)p10 * (1.f - xfrac) + (float)p11 * xfrac) * yfrac;
+            dst[y * img_pitch + x] = (int)tmp;
+        }
+    }
+}
+
+int remap(const uint8_t* src, uint8_t* dst, const float* mapx, const float* mapy, int img_pitch)
+{
+    dim3 threadsPerBlock(16, 16);
+    dim3 blocks((IMG_W + 15) / (threadsPerBlock.x), (IMG_H + 15) / (threadsPerBlock.y));
+
+    remap_kernel<<<blocks, threadsPerBlock>>>(src, dst, mapx, mapy, img_pitch);
+
+    return 0;
+}
+
+
+
 
 __global__ void
 addLabelsKernel(int *pDevPtr, int pitch)
