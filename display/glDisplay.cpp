@@ -602,7 +602,7 @@ void glDisplay::RenderImage( void* img, uint32_t width, uint32_t height, imageFo
 
 	if( tex_map != NULL )
 	{
-		printf("Copy img_dev to GL memory.\n");
+		//printf("Copy img_dev to GL memory.\n");
 		CUDA(cudaMemcpy(tex_map, img, interopTex->GetSize(), cudaMemcpyDeviceToDevice));
 		// FIXME: When img is still on host to be displayed 
 		//CUDA(cudaMemcpy(tex_map, img, interopTex->GetSize(), cudaMemcpyHostToDevice));
