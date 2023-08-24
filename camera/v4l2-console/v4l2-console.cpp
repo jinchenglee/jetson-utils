@@ -169,7 +169,15 @@ int main( int argc, char** argv )
             if( display != NULL )
             {
                 //display->Render((uint8_t*)img, camera->GetWidth(), camera->GetHeight(), IMAGE_RGBA8);
-                display->RenderOnce((uint8_t*)img_dev, camera->GetPitch(), camera->GetHeight(), IMAGE_GRAY8, 0, 0);
+                //display->RenderOnce((uint8_t*)img_dev, camera->GetPitch(), camera->GetHeight(), IMAGE_GRAY8, 0, 0);
+
+                // Manually control the rendering.
+	            display->BeginRender();
+
+	            display->RenderImage((uint8_t*)img_dev, camera->GetPitch(), camera->GetHeight(), IMAGE_GRAY8, 0, 0);
+	            display->RenderLine(10.f, 10.f, 50.f, 50.f, 0.2f, 0.3f, 0.5f);
+
+	            display->EndRender();
 
                 // update status bar
                 char str[256];

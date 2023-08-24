@@ -557,7 +557,7 @@ void glDisplay::RenderImage( void* img, uint32_t width, uint32_t height, imageFo
 {
 	if( !img || width == 0 || height == 0 )
 		return;
-	
+
 	// obtain the OpenGL texture to use
 	glTexture* interopTex = allocTexture(width, height, format);
 
