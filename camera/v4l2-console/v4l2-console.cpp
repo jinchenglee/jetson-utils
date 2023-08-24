@@ -155,7 +155,7 @@ int main( int argc, char** argv )
             img_cnt++;
 
             cudaMemcpy(img_dev, img, 2*sizeOfImage*sizeof(uint8_t), cudaMemcpyHostToDevice);
-            printf("Copied img to img_dev.\n");
+            //printf("Copied img to img_dev.\n");
 
             // CUDA proc
             decoupleLR((CUdeviceptr) img_dev, width*2);
@@ -163,7 +163,7 @@ int main( int argc, char** argv )
             remap(img_dev, img_dev + width, mapxDevPtr, mapyDevPtr, width*2);
             cudaDeviceSynchronize();
 
-            printf("CUDA kernels done.\n");
+            //printf("CUDA kernels done.\n");
 
             // update display
             if( display != NULL )
