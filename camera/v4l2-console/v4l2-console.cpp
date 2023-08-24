@@ -125,8 +125,12 @@ int main( int argc, char** argv )
 
     apriltag_detector_t *td = apriltag_detector_create();
     apriltag_family_t *tf = tag16h5_create();
-    //td->debug = true;
     apriltag_detector_add_family(td, tf);
+
+    // Config tag detector.
+    //td->debug = true;
+    td->nthreads = 8;
+
 
     // Device memory for CUDA processing.
     uint8_t* img_dev = nullptr;
@@ -172,18 +176,6 @@ int main( int argc, char** argv )
 
             zarray_t *detections = apriltag_detector_detect(td, img_tag);
 
-            for (int i = 0; i < zarray_size(detections); i++) {
-                apriltag_detection_t *det;
-                zarray_get(detections, i, &det);
-            
-                // Do stuff with detections here.
-                if (det->decision_margin > 150.f) { // FIXME: 150 might be too harsh!
-                    printf("detection %3d: id (%2dx%2d)-%-4d, hamming %d, margin %8.3f\n",
-                        i, det->family->nbits, det->family->h, det->id, det->hamming, det->decision_margin);
-                }
-
-            }
-
 
             if (img_cnt==30) {
                 FILE *fout = fopen("frame.raw", "wb");
@@ -203,7 +195,24 @@ int main( int argc, char** argv )
 	            display->BeginRender();
 
 	            display->RenderImage((uint8_t*)img_dev, camera->GetPitch(), camera->GetHeight(), IMAGE_GRAY8, 0, 0);
-	            display->RenderLine(10.f, 10.f, 50.f, 50.f, 0.2f, 0.3f, 0.5f);
+
+
+            for (int i = 0; i < zarray_size(detections); i++) {
+                apriltag_detection_t *det;
+                zarray_get(detections, i, &det);
+            
+                // Do stuff with detections here.
+                if (det->decision_margin > 150.f) { // FIXME: 150 might be too harsh!
+                    printf("detection %3d: id (%2dx%2d)-%-4d, hamming %d, margin %8.3f\n",
+                        i, det->family->nbits, det->family->h, det->id, det->hamming, det->decision_margin);
+
+                    // Draw the lines on tag edges.
+	                display->RenderLine(det->p[1][0], det->p[1][1], det->p[0][0], det->p[0][1], 0.9f, 0.f, 0.f);
+	                display->RenderLine(det->p[0][0], det->p[0][1], det->p[3][0], det->p[3][1], 0.f, 0.9f, 0.f);
+                }
+
+            }
+
 
 	            display->EndRender();
 
