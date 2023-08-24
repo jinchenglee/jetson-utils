@@ -1,0 +1,3 @@
+[submodule "3rd_party/apriltag"]
+	path = 3rd_party/apriltag
+	url = git@github.com:jinchenglee/apriltag.git
