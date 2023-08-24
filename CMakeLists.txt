@@ -135,3 +135,12 @@ add_subdirectory(display/gl-display-test)
 #add_subdirectory(network/webrtc-server)
 #add_subdirectory(network/rtsp-server)
 
+
+
+# Weired missing packages need explicit find_package()
+find_package(Eigen3 REQUIRED)
+find_package(Iconv REQUIRED)
+find_package(gflags REQUIRED)
+
+# Add AprilTag submodule
+add_subdirectory(3rd_party/apriltag)
