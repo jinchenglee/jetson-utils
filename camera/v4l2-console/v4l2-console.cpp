@@ -125,7 +125,8 @@ int main( int argc, char** argv )
 
     apriltag_detector_t *td = apriltag_detector_create();
     apriltag_family_t *tf = tag16h5_create();
-
+    //td->debug = true;
+    apriltag_detector_add_family(td, tf);
 
     // Device memory for CUDA processing.
     uint8_t* img_dev = nullptr;
@@ -156,14 +157,6 @@ int main( int argc, char** argv )
         {
             //printf("recieved new video frame\n");
 
-            if (img_cnt==0) {
-                FILE *fout = fopen("frame.raw", "wb");
-                fwrite(img, camera->GetPitch()*camera->GetHeight(), 1, fout);
-                fclose(fout);
-            }
-
-            img_cnt++;
-
             cudaMemcpy(img_dev, img, 2*sizeOfImage*sizeof(uint8_t), cudaMemcpyHostToDevice);
             //printf("Copied img to img_dev.\n");
 
@@ -177,7 +170,6 @@ int main( int argc, char** argv )
             // Copy undistorted image to host.
             cudaMemcpy(img_tag->buf, img_dev, 2*sizeOfImage*sizeof(uint8_t), cudaMemcpyDeviceToHost);
 
-            apriltag_detector_add_family(td, tf);
             zarray_t *detections = apriltag_detector_detect(td, img_tag);
 
             for (int i = 0; i < zarray_size(detections); i++) {
@@ -185,8 +177,21 @@ int main( int argc, char** argv )
                 zarray_get(detections, i, &det);
             
                 // Do stuff with detections here.
-                printf("detected id: %d\n", det->id);
+                if (det->decision_margin > 150.f) { // FIXME: 150 might be too harsh!
+                    printf("detection %3d: id (%2dx%2d)-%-4d, hamming %d, margin %8.3f\n",
+                        i, det->family->nbits, det->family->h, det->id, det->hamming, det->decision_margin);
+                }
+
             }
+
+
+            if (img_cnt==30) {
+                FILE *fout = fopen("frame.raw", "wb");
+                fwrite(img_tag->buf, camera->GetPitch()*camera->GetHeight(), 1, fout);
+                fclose(fout);
+            }
+
+            img_cnt++;
 
             // update display
             if( display != NULL )
@@ -214,6 +219,8 @@ int main( int argc, char** argv )
 
         }
             
+        // Sleep number seconds.
+        //sleep(1);
     }
     
     // Free cuda allocations.
