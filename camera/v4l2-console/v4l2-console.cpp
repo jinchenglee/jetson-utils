@@ -25,11 +25,14 @@
 #include "NvAnalysis.h"
 #include "mapxpy.h"
 
+// AprilTag related
+#include "apriltag.h"
+#include "tag16h5.h"
+
 #include <stdio.h>
 #include <signal.h>
 #include <cassert>
 #include <cuda.h>
-
 
 bool signal_recieved = false;
 
@@ -117,6 +120,13 @@ int main( int argc, char** argv )
     int width = IMG_W;
     size_t sizeOfImage = width * height;
 
+    // malloc() apriltag image on Host
+    image_u8_t* img_tag = image_u8_create(2*camera->GetWidth(), camera->GetHeight());
+
+    apriltag_detector_t *td = apriltag_detector_create();
+    apriltag_family_t *tf = tag16h5_create();
+
+
     // Device memory for CUDA processing.
     uint8_t* img_dev = nullptr;
     float *mapxDevPtr, *mapyDevPtr;
@@ -162,8 +172,21 @@ int main( int argc, char** argv )
             cudaDeviceSynchronize();
             remap(img_dev, img_dev + width, mapxDevPtr, mapyDevPtr, width*2);
             cudaDeviceSynchronize();
-
             //printf("CUDA kernels done.\n");
+
+            // Copy undistorted image to host.
+            cudaMemcpy(img_tag->buf, img_dev, 2*sizeOfImage*sizeof(uint8_t), cudaMemcpyDeviceToHost);
+
+            apriltag_detector_add_family(td, tf);
+            zarray_t *detections = apriltag_detector_detect(td, img_tag);
+
+            for (int i = 0; i < zarray_size(detections); i++) {
+                apriltag_detection_t *det;
+                zarray_get(detections, i, &det);
+            
+                // Do stuff with detections here.
+                printf("detected id: %d\n", det->id);
+            }
 
             // update display
             if( display != NULL )
@@ -197,6 +220,12 @@ int main( int argc, char** argv )
     cudaFree(img_dev);
     cudaFree(mapxDevPtr);
     cudaFree(mapyDevPtr);
+
+    // Cleanup.
+    tag16h5_destroy(tf);
+    apriltag_detector_destroy(td);
+
+    image_u8_destroy(img_tag);
     
     /*
      * shutdown the camera device
