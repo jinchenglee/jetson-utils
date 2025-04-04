@@ -159,7 +159,7 @@ int main( int argc, char** argv )
         }
         else
         {
-            //printf("recieved new video frame\n");
+            printf("recieved new video frame\n");
 
             cudaMemcpy(img_dev, img, 2*sizeOfImage*sizeof(uint8_t), cudaMemcpyHostToDevice);
             //printf("Copied img to img_dev.\n");
@@ -196,10 +196,13 @@ int main( int argc, char** argv )
 
 	            display->RenderImage((uint8_t*)img_dev, camera->GetPitch(), camera->GetHeight(), IMAGE_GRAY8, 0, 0);
 
+            	//printf("Update display.\n");
 
             for (int i = 0; i < zarray_size(detections); i++) {
                 apriltag_detection_t *det;
                 zarray_get(detections, i, &det);
+
+            	printf("det->decision_margin = %f.\n", det->decision_margin);
             
                 // Do stuff with detections here.
                 if (det->decision_margin > 150.f) { // FIXME: 150 might be too harsh!

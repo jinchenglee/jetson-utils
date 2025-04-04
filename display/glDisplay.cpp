@@ -605,7 +605,7 @@ void glDisplay::RenderImage( void* img, uint32_t width, uint32_t height, imageFo
 
     if( tex_map != NULL )
 	{
-		printf("Copy img_dev to GL memory.\n");
+		//printf("Copy img_dev to GL memory.\n");
 		CUDA(cudaMemcpyAsync(tex_map, img, interopTex->GetSize(), cudaMemcpyDeviceToDevice, stream));
 		//CUDA(cudaStreamSynchronize(stream));
 		interopTex->Unmap(stream);
