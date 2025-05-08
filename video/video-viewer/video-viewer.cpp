@@ -22,9 +22,11 @@
 
 #include "videoSource.h"
 #include "videoOutput.h"
+#include "glDisplay.h"  // Add include for glDisplay
 
 #include "logging.h"
 #include "commandLine.h"
+#include "glUtility.h"  // For GL drawing functions
 
 #include <signal.h>
 
@@ -34,6 +36,7 @@ extern "C" {
 #include "tag36h11.h"
 #include "tag16h5.h"
 #include "apriltag_pose.h"
+#include "apriltag_math.h"  // For pose estimation
 }
 
 // Global variables for AprilTag
@@ -109,11 +112,32 @@ bool init_apriltag_detector(const char* family_name)
 	// Configure detector
 	tag_detector->quad_decimate = 2.0;
 	tag_detector->quad_sigma = 0.0;
-	tag_detector->nthreads = 4;
+	tag_detector->nthreads = 8;
 	tag_detector->debug = false;
 	tag_detector->refine_edges = true;
 
 	return true;
+}
+
+// Function to draw coordinate axes for AprilTag detection
+void drawAprilTagAxes(videoOutput* output, apriltag_detection_t* det)
+{
+	// Check if the output is a glDisplay
+	if( output->IsType<glDisplay>() )
+	{
+		glDisplay* display = (glDisplay*)output;
+		
+		// Only draw if detection confidence is high enough
+		if( det->decision_margin > 80.0f )
+		{
+			// Draw lines connecting the four corners of the tag
+			// Corner order: top-left, top-right, bottom-right, bottom-left
+			display->RenderLine(det->p[0][0], det->p[0][1], det->p[1][0], det->p[1][1], 0.9f, 0.0f, 0.0f); // Red line from top-left to top-right
+			display->RenderLine(det->p[1][0], det->p[1][1], det->p[2][0], det->p[2][1], 0.0f, 0.9f, 0.0f); // Green line from top-right to bottom-right
+			//display->RenderLine(det->p[2][0], det->p[2][1], det->p[3][0], det->p[3][1], 0.0f, 0.0f, 0.9f); // Blue line from bottom-right to bottom-left
+			//display->RenderLine(det->p[3][0], det->p[3][1], det->p[0][0], det->p[0][1], 0.9f, 0.9f, 0.0f); // Yellow line from bottom-left to top-left
+		}
+	}
 }
 
 int main( int argc, char** argv )
@@ -167,10 +191,29 @@ int main( int argc, char** argv )
 
 	LogInfo("Using AprilTag family: %s\n", tag_family_name);
 
+	// Create reusable grayscale image buffer
+	image_u8_t im = {
+		.width = input->GetWidth(),
+		.height = input->GetHeight(),
+		.stride = input->GetWidth(),
+		.buf = new uint8_t[input->GetWidth() * input->GetHeight()]
+	};
+
+	// Initialize GL display and begin rendering context
+	glDisplay* display = NULL;
+	if( output->IsType<glDisplay>() )
+	{
+		display = (glDisplay*)output;
+	}
+
 	/*
 	 * capture/display loop
 	 */
 	uint32_t numFrames = 0;
+	uint32_t framesWithTags = 0;
+	uint32_t framesWithHighConfidenceTags = 0;
+	uint32_t totalTagsDetected = 0;
+	uint32_t highConfidenceTagsDetected = 0;
 
 	while( !signal_recieved )
 	{
@@ -190,14 +233,6 @@ int main( int argc, char** argv )
 		
 		numFrames++;
 
-		// Convert image to grayscale for AprilTag detection
-		image_u8_t im = {
-			.width = input->GetWidth(),
-			.height = input->GetHeight(),
-			.stride = input->GetWidth(),
-			.buf = new uint8_t[input->GetWidth() * input->GetHeight()]
-		};
-
 		// Convert RGB to grayscale
 		for(int y = 0; y < im.height; y++) {
 			for(int x = 0; x < im.width; x++) {
@@ -209,56 +244,99 @@ int main( int argc, char** argv )
 		// Detect AprilTags
 		zarray_t* detections = apriltag_detector_detect(tag_detector, &im);
 
-		// Draw detections
-		for(int i = 0; i < zarray_size(detections); i++) {
-			apriltag_detection_t* det;
-			zarray_get(detections, i, &det);
-
-			// Draw tag outline
-			for(int j = 0; j < 4; j++) {
-				int k = (j + 1) % 4;
-				int x1 = (int)det->p[j][0];
-				int y1 = (int)det->p[j][1];
-				int x2 = (int)det->p[k][0];
-				int y2 = (int)det->p[k][1];
-				
-				// Draw line in red
-				for(int t = 0; t < 2; t++) {
-					image[y1 * im.width + x1 + t] = make_uchar3(255, 0, 0);
-					image[y2 * im.width + x2 + t] = make_uchar3(255, 0, 0);
-				}
-			}
-
-			// Draw tag ID
-			char str[32];
-			sprintf(str, "ID: %d", det->id);
-			// Note: You'll need to implement text rendering here
+		// Print detection statistics every 30 frames
+		if( numFrames % 30 == 0 )
+		{
+			printf("\nDetection statistics for frame %u:\n", numFrames);
+			printf("  Number of edges detected: %d\n", tag_detector->nedges);
+			printf("  Number of segments detected: %d\n", tag_detector->nsegments);
+			printf("  Number of quads detected: %d\n", tag_detector->nquads);
+			printf("  Number of tags detected: %d\n", zarray_size(detections));
+			printf("  Frames with tags detected: %u/%u (%.1f%%)\n", 
+				framesWithTags, numFrames, (float)framesWithTags/numFrames*100.0f);
+			printf("  Frames with high confidence tags: %u/%u (%.1f%%)\n",
+				framesWithHighConfidenceTags, numFrames, (float)framesWithHighConfidenceTags/numFrames*100.0f);
+			printf("  Total tags detected: %u\n", totalTagsDetected);
+			printf("  High confidence tags: %u (%.1f%%)\n",
+				highConfidenceTagsDetected, totalTagsDetected > 0 ? (float)highConfidenceTagsDetected/totalTagsDetected*100.0f : 0.0f);
+			
+			// Print timing information
+			timeprofile_display(tag_detector->tp);
 		}
 
-		// Clean up detections
-		apriltag_detections_destroy(detections);
-		delete[] im.buf;
-		
 		if( output != NULL )
 		{
+			// Begin OpenGL rendering
+			display->BeginRender();
+
+			// First render the image
 			output->Render(image, input->GetWidth(), input->GetHeight());
+
+			// Then draw the detections
+			int numTags = zarray_size(detections);
+			if( numTags > 0 )
+			{
+				framesWithTags++;
+				bool hasHighConfidenceTag = false;
+				
+				for(int i = 0; i < numTags; i++) {
+					apriltag_detection_t* det;
+					zarray_get(detections, i, &det);
+					
+					totalTagsDetected++;
+					if( det->decision_margin > 100.0f )
+					{
+						highConfidenceTagsDetected++;
+						hasHighConfidenceTag = true;
+					}
+					
+					// Print tag info for each detection
+					if( numFrames % 30 == 0 )
+					{
+						printf("  Tag %d: id=%d, hamming=%d, margin=%.3f %s\n", 
+							i, det->id, det->hamming, det->decision_margin,
+							det->decision_margin > 100.0f ? "(high confidence)" : "(low confidence)");
+					}
+					
+					drawAprilTagAxes(output, det);
+				}
+				
+				if( hasHighConfidenceTag )
+					framesWithHighConfidenceTags++;
+			}
+
+			// End OpenGL rendering
+			display->EndRender();
 
 			// update status bar
 			char str[256];
-			sprintf(str, "Video Viewer (%ux%u) | %.1f FPS | Tag Family: %s", 
-				input->GetWidth(), input->GetHeight(), output->GetFrameRate(), tag_family_name);
+			sprintf(str, "Video Viewer (%ux%u) | %.1f FPS | Tags: %d/%d | Tag Family: %s", 
+				input->GetWidth(), input->GetHeight(), output->GetFrameRate(), 
+				highConfidenceTagsDetected, totalTagsDetected, tag_family_name);
 			output->SetStatus(str);	
 
 			// check if the user quit
 			if( !output->IsStreaming() )
 				break;
 		}
+
+		// Clean up detections
+		apriltag_detections_destroy(detections);
 	}
 
 	/*
 	 * destroy resources
 	 */
 	printf("video-viewer:  shutting down...\n");
+	printf("Final detection statistics:\n");
+	printf("  Total frames processed: %u\n", numFrames);
+	printf("  Frames with tags detected: %u (%.1f%%)\n", 
+		framesWithTags, (float)framesWithTags/numFrames*100.0f);
+	printf("  Frames with high confidence tags: %u (%.1f%%)\n",
+		framesWithHighConfidenceTags, (float)framesWithHighConfidenceTags/numFrames*100.0f);
+	printf("  Total tags detected: %u\n", totalTagsDetected);
+	printf("  High confidence tags: %u (%.1f%%)\n",
+		highConfidenceTagsDetected, totalTagsDetected > 0 ? (float)highConfidenceTagsDetected/totalTagsDetected*100.0f : 0.0f);
 	
 	// Clean up AprilTag resources
 	apriltag_detector_destroy(tag_detector);
@@ -266,6 +344,9 @@ int main( int argc, char** argv )
 		tag36h11_destroy(tag_family);
 	else if(strcmp(tag_family_name, "16h5") == 0)
 		tag16h5_destroy(tag_family);
+	
+	// Clean up grayscale image buffer
+	delete[] im.buf;
 	
 	SAFE_DELETE(input);
 	SAFE_DELETE(output);
