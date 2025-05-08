@@ -187,8 +187,8 @@ int main( int argc, char** argv )
 	td->quad_decimate = 2.0;
 	td->quad_sigma = 0.0;
 	td->nthreads = 8;
-	td->debug = true;  // Enable debug mode
-	td->refine_edges = true;
+	td->debug = false;  // Disable debug mode for better performance
+	td->refine_edges = false;  // Disable edge refinement for better performance
 
 
 
@@ -210,7 +210,7 @@ int main( int argc, char** argv )
     uint32_t img_cnt = 0;
     while( !signal_recieved )
     {
-        uint8_t* img = (uint8_t*)camera->Capture(500);
+        uint8_t* img = (uint8_t*)camera->Capture(50);
         
         if( !img )
         {
