@@ -94,12 +94,18 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
 	link_directories(/usr/lib/aarch64-linux-gnu/tegra)
 endif()
 
+# find required packages
+find_package(VPI 3.2 REQUIRED)
+
 # build library
 file(GLOB jetsonUtilitySources *.cpp camera/*.cpp codec/*.cpp cuda/*.cu cuda/*.cpp display/*.cpp image/*.cpp input/*.cpp network/*.cpp threads/*.cpp video/*.cpp)
 file(GLOB jetsonUtilityIncludes *.h *.hpp camera/*.h codec/*.h cuda/*.h cuda/*.cuh display/*.h image/*.h image/*.inl input/*.h network/*.h threads/*.h threads/*.inl video/*.h)
 
 cuda_add_library(jetson-utils SHARED ${jetsonUtilitySources})
-target_link_libraries(jetson-utils GL GLU GLEW gstreamer-1.0 gstapp-1.0 gstpbutils-1.0 gstwebrtc-1.0 gstsdp-1.0 gstrtspserver-1.0 json-glib-1.0 soup-2.4 ${CUDA_nppicc_LIBRARY})	
+target_link_libraries(jetson-utils GL GLU GLEW gstreamer-1.0 gstapp-1.0 gstpbutils-1.0 gstwebrtc-1.0 gstsdp-1.0 gstrtspserver-1.0 json-glib-1.0 soup-2.4 ${CUDA_nppicc_LIBRARY} vpi)
+
+# Add VPI include directories
+target_include_directories(jetson-utils PRIVATE ${VPI_INCLUDE_DIRS})
 
 if(NVBUF_UTILS)
 	target_link_libraries(jetson-utils nvbuf_utils)
@@ -134,6 +140,7 @@ add_subdirectory(3rd_party/apriltag)
 add_subdirectory(video/video-viewer)
 
 add_subdirectory(camera/v4l2-console)
+add_subdirectory(camera/vpi-camera-viewer)
 #add_subdirectory(camera/camera-viewer)
 add_subdirectory(display/gl-display-test)
 #add_subdirectory(network/webrtc-server)

@@ -1,6 +1,9 @@
 # Prerequesite
 https://github.com/dusty-nv/jetson-inference/blob/master/CMakePreBuild.sh
+
 sudo apt install libeigen3-dev libgflags-dev
+
+For VPI apriltag detection, need at least [VPI v3.2](https://docs.nvidia.com/vpi/algo_apriltags.html) installed.
 
 # jetson-utils
 C++/CUDA/Python multimedia utilities for NVIDIA Jetson:
