@@ -28,11 +28,13 @@
 // AprilTag related
 #include "apriltag.h"
 #include "tag16h5.h"
+#include "tag36h11.h"
 
 #include <stdio.h>
 #include <signal.h>
 #include <cassert>
 #include <cuda.h>
+#include <algorithm>
 
 bool signal_recieved = false;
 
@@ -62,14 +64,25 @@ int main( int argc, char** argv )
     if( argc < 2 )
     {
         printf("v4l2-console:  0 arguments were supplied.\n");
-        printf("usage:  v4l2-console <filename>\n");
+        printf("usage:  v4l2-console <filename> [--tag16h5]\n");
         printf("      ./v4l2-console /dev/video0\n");
+        printf("      ./v4l2-console /dev/video0 --tag16h5\n");
         
         return 0;
     }
     
     const char* dev_path = argv[1];
-    printf("v4l2-console:   attempting to initialize video device '%s'\n\n", dev_path);
+    bool use_tag16h5 = false;
+    
+    // Parse command line arguments
+    for(int i = 2; i < argc; i++) {
+        if(strcmp(argv[i], "--tag16h5") == 0) {
+            use_tag16h5 = true;
+        }
+    }
+    
+    printf("v4l2-console:   attempting to initialize video device '%s'\n", dev_path);
+    printf("Using tag family: %s\n", use_tag16h5 ? "tag16h5" : "tag36h11");
     
     if( signal(SIGINT, sig_handler) == SIG_ERR )
         printf("\ncan't catch SIGINT\n");
@@ -90,11 +103,34 @@ int main( int argc, char** argv )
     printf("   height:  %u\n", camera->GetHeight());
     printf("    depth:  %u (bpp)\n", camera->GetPixelDepth());
     
+    // Initialize CUDA-OpenGL interoperability
+    cudaError_t cudaStatus = cudaSetDevice(0);
+    if (cudaStatus != cudaSuccess) {
+        printf("Failed to initialize CUDA device: %s\n", cudaGetErrorString(cudaStatus));
+        return 0;
+    }
+
+    // Print CUDA device properties
+    cudaDeviceProp deviceProp;
+    cudaStatus = cudaGetDeviceProperties(&deviceProp, 0);
+    if (cudaStatus == cudaSuccess) {
+        printf("CUDA Device Properties:\n");
+        printf("  Device Name: %s\n", deviceProp.name);
+        printf("  Compute Capability: %d.%d\n", deviceProp.major, deviceProp.minor);
+        printf("  Can Map Host Memory: %s\n", deviceProp.canMapHostMemory ? "Yes" : "No");
+        printf("  Integrated GPU: %s\n", deviceProp.integrated ? "Yes" : "No");
+        printf("  Unified Addressing: %s\n", deviceProp.unifiedAddressing ? "Yes" : "No");
+    }
 
     /*
      * create openGL window
      */
-    glDisplay* display = glDisplay::Create("", camera->GetPitch(), camera->GetHeight(), 0.f, 0.f, 0.f, 0.f);
+    videoOptions displayOpts;
+    displayOpts.resource = "display://0";
+    displayOpts.width = camera->GetPitch();
+    displayOpts.height = camera->GetHeight();
+    
+    glDisplay* display = glDisplay::Create(displayOpts);
     
     if( !display )
     {
@@ -121,15 +157,39 @@ int main( int argc, char** argv )
     size_t sizeOfImage = width * height;
 
     // malloc() apriltag image on Host
-    image_u8_t* img_tag = image_u8_create(2*camera->GetWidth(), camera->GetHeight());
+    //
+    // Not sure why below line doesn't work. Seems the buffer never really got allocated.
+    //image_u8_t* img_tag = image_u8_create(2*camera->GetWidth(), camera->GetHeight());
+    //
+    // Below line works.
+	image_u8_t im = {
+		.width = 2*camera->GetWidth(),
+		.height = camera->GetHeight(),
+		.stride = 2*camera->GetWidth(),
+		.buf = new uint8_t[2*camera->GetWidth() * camera->GetHeight()]
+	};
+    image_u8_t* img_tag = &im;
 
     apriltag_detector_t *td = apriltag_detector_create();
-    apriltag_family_t *tf = tag16h5_create();
+    apriltag_family_t *tf = nullptr;
+    
+    if(use_tag16h5) {
+        tf = tag16h5_create();
+        printf("Initialized tag16h5 detector\n");
+    } else {
+        tf = tag36h11_create();
+        printf("Initialized tag36h11 detector\n");
+    }
+    
     apriltag_detector_add_family(td, tf);
 
     // Config tag detector.
-    td->debug = true;
-    td->nthreads = 8;
+	td->quad_decimate = 2.0;
+	td->quad_sigma = 0.0;
+	td->nthreads = 8;
+	td->debug = true;  // Enable debug mode
+	td->refine_edges = true;
+
 
 
     // Device memory for CUDA processing.
@@ -159,62 +219,83 @@ int main( int argc, char** argv )
         }
         else
         {
-            printf("recieved new video frame\n");
+            //printf("recieved new video frame\n");
 
             cudaMemcpy(img_dev, img, 2*sizeOfImage*sizeof(uint8_t), cudaMemcpyHostToDevice);
-            printf("Copied img to img_dev.\n");
+            //printf("Copied img to img_dev.\n");
 
             // CUDA proc
             decoupleLR((CUdeviceptr) img_dev, width*2);
             cudaDeviceSynchronize();
             remap(img_dev, img_dev + width, mapxDevPtr, mapyDevPtr, width*2);
             cudaDeviceSynchronize();
-            printf("CUDA kernels done.\n");
+            //printf("CUDA kernels done.\n");
 
             // Copy undistorted image to host.
-            cudaMemcpy(img_tag->buf, img_dev, 2*sizeOfImage*sizeof(uint8_t), cudaMemcpyDeviceToHost);
+            cudaError_t err = cudaMemcpy(img_tag->buf, img_dev, 2*sizeOfImage*sizeof(uint8_t), cudaMemcpyDeviceToHost);
+            cudaDeviceSynchronize();
+            if (err != cudaSuccess) {
+                printf("CUDA memcpy failed: %s\n", cudaGetErrorString(err));
+                continue;
+            }
+
+            // Debug: Check input values
+            //if (img_cnt == 30) {  
+            //    uint8_t min_val = 255;
+            //    uint8_t max_val = 0;
+            //    for(int i = 0; i < img_tag->width * img_tag->height; i++) {
+            //        min_val = std::min(min_val, img_tag->buf[i]);
+            //        max_val = std::max(max_val, img_tag->buf[i]);
+            //    }
+            //    printf("Input image stats - Min: %d, Max: %d\n", min_val, max_val);
+            //}
 
             zarray_t *detections = apriltag_detector_detect(td, img_tag);
 
+            // Print detection statistics
+            //if (img_cnt % 30 == 0) {  // Print every 30 frames
+            //    printf("Detection statistics:\n");
+            //    printf("  Number of edges detected: %d\n", td->nedges);
+            //    printf("  Number of segments detected: %d\n", td->nsegments);
+            //    printf("  Number of quads detected: %d\n", td->nquads);
+            //    printf("  Number of tags detected: %d\n", zarray_size(detections));
+            //    
+            //    // Print timing information
+            //    timeprofile_display(td->tp);
+            //}
 
-            if (img_cnt==30) {
-                FILE *fout = fopen("frame.raw", "wb");
-                fwrite(img_tag->buf, camera->GetPitch()*camera->GetHeight(), 1, fout);
-                fclose(fout);
-            }
+            //if (img_cnt==30) {
+            //    FILE *fout = fopen("frame.raw", "wb");
+            //    fwrite(img_tag->buf,camera->GetPitch()*camera->GetHeight(), 1, fout);
+            //    fclose(fout);
+            //}
 
             img_cnt++;
 
             // update display
             if( display != NULL )
             {
-                //display->Render((uint8_t*)img, camera->GetWidth(), camera->GetHeight(), IMAGE_RGBA8);
-                //display->RenderOnce((uint8_t*)img_dev, camera->GetPitch(), camera->GetHeight(), IMAGE_GRAY8, 0, 0);
+                display->BeginRender();
+                
+                // Render the image directly from apriltag buffer with explicit format.
+                // glDisplay requires renderImage buffer at device, so cannot render img_tag->buf directly.
+                display->RenderImage(img_dev, camera->GetPitch(), camera->GetHeight(), IMAGE_GRAY8, 0, 0, false);
+                //printf("Update display.\n");
 
-                // Manually control the rendering.
-	            display->BeginRender();
+                for (int i = 0; i < zarray_size(detections); i++) {
+                    apriltag_detection_t *det;
+                    zarray_get(detections, i, &det);
 
-	            display->RenderImage((uint8_t*)img_dev, camera->GetPitch(), camera->GetHeight(), IMAGE_GRAY8, 0, 0);
+                    //printf("det->decision_margin = %f.\n", det->decision_margin);
+                
+                    if (det->decision_margin > 100.f) {
+                        printf("detection %3d: id (%2dx%2d)-%-4d, hamming %d, margin %8.3f\n",
+                            i, det->family->nbits, det->family->h, det->id, det->hamming, det->decision_margin);
 
-            	printf("Update display.\n");
-
-            for (int i = 0; i < zarray_size(detections); i++) {
-                apriltag_detection_t *det;
-                zarray_get(detections, i, &det);
-
-            	printf("det->decision_margin = %f.\n", det->decision_margin);
-            
-                // Do stuff with detections here.
-                if (det->decision_margin > 10.f) { // FIXME: 150 might be too harsh!
-                    printf("detection %3d: id (%2dx%2d)-%-4d, hamming %d, margin %8.3f\n",
-                        i, det->family->nbits, det->family->h, det->id, det->hamming, det->decision_margin);
-
-                    // Draw the lines on tag edges.
-	                display->RenderLine(det->p[1][0], det->p[1][1], det->p[0][0], det->p[0][1], 0.9f, 0.f, 0.f);
-	                display->RenderLine(det->p[0][0], det->p[0][1], det->p[3][0], det->p[3][1], 0.f, 0.9f, 0.f);
+                        display->RenderLine(det->p[1][0], det->p[1][1], det->p[0][0], det->p[0][1], 0.9f, 0.f, 0.f);
+                        display->RenderLine(det->p[0][0], det->p[0][1], det->p[3][0], det->p[3][1], 0.f, 0.9f, 0.f);
+                    }
                 }
-
-            }
 
 
 	            display->EndRender();

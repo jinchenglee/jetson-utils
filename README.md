@@ -1,3 +1,7 @@
+# Prerequesite
+https://github.com/dusty-nv/jetson-inference/blob/master/CMakePreBuild.sh
+sudo apt install libeigen3-dev libgflags-dev
+
 # jetson-utils
 C++/CUDA/Python multimedia utilities for NVIDIA Jetson:
 

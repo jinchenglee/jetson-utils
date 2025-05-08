@@ -607,15 +607,7 @@ void glDisplay::RenderImage( void* img, uint32_t width, uint32_t height, imageFo
 	{
 		//printf("Copy img_dev to GL memory.\n");
 		CUDA(cudaMemcpyAsync(tex_map, img, interopTex->GetSize(), cudaMemcpyDeviceToDevice, stream));
-		//CUDA(cudaStreamSynchronize(stream));
 		interopTex->Unmap(stream);
-		//
-		//CUDA(cudaMemcpy(tex_map, img, interopTex->GetSize(), cudaMemcpyDeviceToDevice));
-		//// FIXME: When img is still on host to be displayed 
-		////CUDA(cudaMemcpy(tex_map, img, interopTex->GetSize(), cudaMemcpyHostToDevice));
-
-		////CUDA(cudaDeviceSynchronize());
-		//interopTex->Unmap();
 	}
 
 	// draw the texture
