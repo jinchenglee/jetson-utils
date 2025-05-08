@@ -53,12 +53,12 @@ void sig_handler(int signo)
 
 int usage()
 {
-	printf("usage: video-viewer [--help] [--tag-family=36h11|16h5] input_URI [output_URI]\n\n");
-	printf("View/output a video or image stream with AprilTag detection.\n");
+	printf("usage: one-image-viewer [--help] [--tag-family=36h11|16h5] input_image [output_image]\n\n");
+	printf("Process a single image with AprilTag detection.\n");
 	printf("See below for additional arguments that may not be shown above.\n\n");
 	printf("positional arguments:\n");
-	printf("    input_URI       resource URI of input stream  (see videoSource below)\n");
-	printf("    output_URI      resource URI of output stream (see videoOutput below)\n\n");
+	printf("    input_image     path to input image file (jpg, png, etc.)\n");
+	printf("    output_image    path to save the processed image (optional)\n\n");
 	printf("optional arguments:\n");
 	printf("    --tag-family    AprilTag family to detect (36h11 or 16h5, default: 36h11)\n\n");
 
@@ -110,7 +110,7 @@ bool init_apriltag_detector(const char* family_name)
 	tag_detector->quad_decimate = 2.0;
 	tag_detector->quad_sigma = 0.0;
 	tag_detector->nthreads = 4;
-	tag_detector->debug = false;
+	tag_detector->debug = true;  // Enable debug mode
 	tag_detector->refine_edges = true;
 
 	return true;
@@ -133,24 +133,24 @@ int main( int argc, char** argv )
 		LogError("can't catch SIGINT\n");
 
 	/*
-	 * create input video stream
+	 * create input image source
 	 */
 	videoSource* input = videoSource::Create(cmdLine, ARG_POSITION(0));
 
 	if( !input )
 	{
-		LogError("video-viewer:  failed to create input stream\n");
+		LogError("one-image-viewer:  failed to create input image source\n");
 		return 0;
 	}
 
 	/*
-	 * create output video stream
+	 * create output image writer
 	 */
 	videoOutput* output = videoOutput::Create(cmdLine, ARG_POSITION(1));
 	
 	if( !output )
 	{
-		LogError("video-viewer:  failed to create output stream\n");
+		LogError("one-image-viewer:  failed to create output image writer\n");
 		return 0;
 	}
 
@@ -168,97 +168,142 @@ int main( int argc, char** argv )
 	LogInfo("Using AprilTag family: %s\n", tag_family_name);
 
 	/*
-	 * capture/display loop
+	 * Process single image
 	 */
-	uint32_t numFrames = 0;
-
-	while( !signal_recieved )
+	uchar3* image = NULL;
+	int status = 0;
+	
+	if( !input->Capture(&image, &status) )
 	{
-		uchar3* image = NULL;
-		int status = 0;
-		
-		if( !input->Capture(&image, &status) )
-		{
-			if( status == videoSource::TIMEOUT )
-				continue;
+		LogError("one-image-viewer:  failed to capture input image\n");
+		SAFE_DELETE(input);
+		SAFE_DELETE(output);
+		return 0;
+	}
+
+	LogInfo("Processing image: %ux%u\n", input->GetWidth(), input->GetHeight());
+
+	// Convert image to grayscale for AprilTag detection
+	image_u8_t im = {
+		.width = input->GetWidth(),
+		.height = input->GetHeight(),
+		.stride = input->GetWidth(),
+		.buf = new uint8_t[input->GetWidth() * input->GetHeight()]
+	};
+
+	// Convert RGB to grayscale
+	for(int y = 0; y < im.height; y++) {
+		for(int x = 0; x < im.width; x++) {
+			uchar3 pixel = image[y * im.width + x];
+			im.buf[y * im.stride + x] = (uint8_t)((pixel.x * 0.299 + pixel.y * 0.587 + pixel.z * 0.114));
+		}
+	}
+
+	// Detect AprilTags
+	zarray_t* detections = apriltag_detector_detect(tag_detector, &im);
+
+	// Print detection statistics
+	LogInfo("Detection statistics:\n");
+	LogInfo("  Number of edges detected: %d\n", tag_detector->nedges);
+	LogInfo("  Number of segments detected: %d\n", tag_detector->nsegments);
+	LogInfo("  Number of quads detected: %d\n", tag_detector->nquads);
+	LogInfo("  Number of tags detected: %d\n", zarray_size(detections));
+
+	// Print timing information
+	timeprofile_display(tag_detector->tp);
+
+	// Draw detections
+	for(int i = 0; i < zarray_size(detections); i++) {
+		apriltag_detection_t* det;
+		zarray_get(detections, i, &det);
+
+		// Print detailed information about each detection
+		LogInfo("Tag %d:\n", i);
+		LogInfo("  ID: %d\n", det->id);
+		LogInfo("  Hamming distance: %d\n", det->hamming);
+		LogInfo("  Decision margin: %.3f\n", det->decision_margin);
+		LogInfo("  Center: (%.1f, %.1f)\n", det->c[0], det->c[1]);
+		LogInfo("  Corners: (%.1f, %.1f), (%.1f, %.1f), (%.1f, %.1f), (%.1f, %.1f)\n",
+			det->p[0][0], det->p[0][1],
+			det->p[1][0], det->p[1][1],
+			det->p[2][0], det->p[2][1],
+			det->p[3][0], det->p[3][1]);
+
+		// Draw tag outline
+		for(int j = 0; j < 4; j++) {
+			int k = (j + 1) % 4;
+			int x1 = (int)det->p[j][0];
+			int y1 = (int)det->p[j][1];
+			int x2 = (int)det->p[k][0];
+			int y2 = (int)det->p[k][1];
 			
-			break; // EOS
-		}
-
-		if( numFrames % 25 == 0 || numFrames < 15 )
-			LogVerbose("video-viewer:  captured %u frames (%ux%u)\n", numFrames, input->GetWidth(), input->GetHeight());
-		
-		numFrames++;
-
-		// Convert image to grayscale for AprilTag detection
-		image_u8_t im = {
-			.width = input->GetWidth(),
-			.height = input->GetHeight(),
-			.stride = input->GetWidth(),
-			.buf = new uint8_t[input->GetWidth() * input->GetHeight()]
-		};
-
-		// Convert RGB to grayscale
-		for(int y = 0; y < im.height; y++) {
-			for(int x = 0; x < im.width; x++) {
-				uchar3 pixel = image[y * im.width + x];
-				im.buf[y * im.stride + x] = (uint8_t)((pixel.x * 0.299 + pixel.y * 0.587 + pixel.z * 0.114));
-			}
-		}
-
-		// Detect AprilTags
-		zarray_t* detections = apriltag_detector_detect(tag_detector, &im);
-
-		// Draw detections
-		for(int i = 0; i < zarray_size(detections); i++) {
-			apriltag_detection_t* det;
-			zarray_get(detections, i, &det);
-
-			// Draw tag outline
-			for(int j = 0; j < 4; j++) {
-				int k = (j + 1) % 4;
-				int x1 = (int)det->p[j][0];
-				int y1 = (int)det->p[j][1];
-				int x2 = (int)det->p[k][0];
-				int y2 = (int)det->p[k][1];
+			// Draw line using Bresenham's line algorithm
+			int dx = abs(x2 - x1);
+			int dy = abs(y2 - y1);
+			int sx = (x1 < x2) ? 1 : -1;
+			int sy = (y1 < y2) ? 1 : -1;
+			int err = dx - dy;
+			
+			while(true) {
+				// Draw a 5-pixel wide line for better visibility
+				for(int t = -2; t <= 2; t++) {
+					for(int s = -2; s <= 2; s++) {
+						int nx = x1 + t;
+						int ny = y1 + s;
+						if(nx >= 0 && nx < im.width && ny >= 0 && ny < im.height) {
+							// Bright yellow color (RGB: 255, 255, 0)
+							image[ny * im.width + nx] = make_uchar3(255, 255, 0);
+						}
+					}
+				}
 				
-				// Draw line in red
-				for(int t = 0; t < 2; t++) {
-					image[y1 * im.width + x1 + t] = make_uchar3(255, 0, 0);
-					image[y2 * im.width + x2 + t] = make_uchar3(255, 0, 0);
+				if(x1 == x2 && y1 == y2) break;
+				
+				int e2 = 2 * err;
+				if(e2 > -dy) {
+					err -= dy;
+					x1 += sx;
+				}
+				if(e2 < dx) {
+					err += dx;
+					y1 += sy;
 				}
 			}
 
-			// Draw tag ID
-			char str[32];
-			sprintf(str, "ID: %d", det->id);
-			// Note: You'll need to implement text rendering here
+			// Draw corner points with a bright red dot
+			for(int t = -3; t <= 3; t++) {
+				for(int s = -3; s <= 3; s++) {
+					int nx = (int)det->p[j][0] + t;
+					int ny = (int)det->p[j][1] + s;
+					if(nx >= 0 && nx < im.width && ny >= 0 && ny < im.height) {
+						// Bright red color (RGB: 255, 0, 0)
+						image[ny * im.width + nx] = make_uchar3(255, 0, 0);
+					}
+				}
+			}
 		}
 
-		// Clean up detections
-		apriltag_detections_destroy(detections);
-		delete[] im.buf;
-		
-		if( output != NULL )
-		{
-			output->Render(image, input->GetWidth(), input->GetHeight());
+		// Draw tag ID
+		char str[32];
+		sprintf(str, "ID: %d", det->id);
+		// Note: You'll need to implement text rendering here
+	}
 
-			// update status bar
-			char str[256];
-			sprintf(str, "Video Viewer (%ux%u) | %.1f FPS | Tag Family: %s", 
-				input->GetWidth(), input->GetHeight(), output->GetFrameRate(), tag_family_name);
-			output->SetStatus(str);	
+	// Clean up detections
+	apriltag_detections_destroy(detections);
+	delete[] im.buf;
 
-			// check if the user quit
-			if( !output->IsStreaming() )
-				break;
-		}
+	// Save the processed image
+	if( output != NULL )
+	{
+		output->Render(image, input->GetWidth(), input->GetHeight());
+		LogInfo("Saved processed image\n");
 	}
 
 	/*
 	 * destroy resources
 	 */
-	printf("video-viewer:  shutting down...\n");
+	printf("one-image-viewer:  shutting down...\n");
 	
 	// Clean up AprilTag resources
 	apriltag_detector_destroy(tag_detector);
@@ -270,6 +315,5 @@ int main( int argc, char** argv )
 	SAFE_DELETE(input);
 	SAFE_DELETE(output);
 
-	printf("video-viewer:  shutdown complete\n");
-}
-
+	printf("one-image-viewer:  shutdown complete\n");
+} 

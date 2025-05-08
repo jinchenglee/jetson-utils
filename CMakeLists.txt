@@ -1,4 +1,3 @@
-
 cmake_minimum_required(VERSION 2.8)
 
 # determine if jetson-utils is being built as a submodule inside another repo,
@@ -127,6 +126,11 @@ install(EXPORT jetson-utilsConfig DESTINATION share/jetson-utils/cmake)
 
 # build python bindings + samples
 add_subdirectory(python)
+
+# Add AprilTag submodule first
+add_subdirectory(3rd_party/apriltag)
+
+# Then add video-viewer which depends on AprilTag
 add_subdirectory(video/video-viewer)
 
 add_subdirectory(camera/v4l2-console)
@@ -135,12 +139,7 @@ add_subdirectory(display/gl-display-test)
 #add_subdirectory(network/webrtc-server)
 #add_subdirectory(network/rtsp-server)
 
-
-
 # Weired missing packages need explicit find_package()
 find_package(Eigen3 REQUIRED)
 find_package(Iconv REQUIRED)
 find_package(gflags REQUIRED)
-
-# Add AprilTag submodule
-add_subdirectory(3rd_party/apriltag)

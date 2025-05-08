@@ -128,7 +128,7 @@ int main( int argc, char** argv )
     apriltag_detector_add_family(td, tf);
 
     // Config tag detector.
-    //td->debug = true;
+    td->debug = true;
     td->nthreads = 8;
 
 
@@ -154,7 +154,7 @@ int main( int argc, char** argv )
         
         if( !img )
         {
-            //printf("got NULL image from camera capture\n");
+            printf("got NULL image from camera capture\n");
             continue;
         }
         else
@@ -162,14 +162,14 @@ int main( int argc, char** argv )
             printf("recieved new video frame\n");
 
             cudaMemcpy(img_dev, img, 2*sizeOfImage*sizeof(uint8_t), cudaMemcpyHostToDevice);
-            //printf("Copied img to img_dev.\n");
+            printf("Copied img to img_dev.\n");
 
             // CUDA proc
             decoupleLR((CUdeviceptr) img_dev, width*2);
             cudaDeviceSynchronize();
             remap(img_dev, img_dev + width, mapxDevPtr, mapyDevPtr, width*2);
             cudaDeviceSynchronize();
-            //printf("CUDA kernels done.\n");
+            printf("CUDA kernels done.\n");
 
             // Copy undistorted image to host.
             cudaMemcpy(img_tag->buf, img_dev, 2*sizeOfImage*sizeof(uint8_t), cudaMemcpyDeviceToHost);
@@ -196,7 +196,7 @@ int main( int argc, char** argv )
 
 	            display->RenderImage((uint8_t*)img_dev, camera->GetPitch(), camera->GetHeight(), IMAGE_GRAY8, 0, 0);
 
-            	//printf("Update display.\n");
+            	printf("Update display.\n");
 
             for (int i = 0; i < zarray_size(detections); i++) {
                 apriltag_detection_t *det;
@@ -205,7 +205,7 @@ int main( int argc, char** argv )
             	printf("det->decision_margin = %f.\n", det->decision_margin);
             
                 // Do stuff with detections here.
-                if (det->decision_margin > 150.f) { // FIXME: 150 might be too harsh!
+                if (det->decision_margin > 10.f) { // FIXME: 150 might be too harsh!
                     printf("detection %3d: id (%2dx%2d)-%-4d, hamming %d, margin %8.3f\n",
                         i, det->family->nbits, det->family->h, det->id, det->hamming, det->decision_margin);
 
