@@ -119,26 +119,6 @@ bool init_apriltag_detector(const char* family_name)
 	return true;
 }
 
-// Function to draw coordinate axes for AprilTag detection
-void drawAprilTagAxes(videoOutput* output, apriltag_detection_t* det)
-{
-	// Check if the output is a glDisplay
-	if( output->IsType<glDisplay>() )
-	{
-		glDisplay* display = (glDisplay*)output;
-		
-		// Only draw if detection confidence is high enough
-		if( det->decision_margin > 80.0f )
-		{
-			// Draw lines connecting the four corners of the tag
-			// Corner order: top-left, top-right, bottom-right, bottom-left
-			display->RenderLine(det->p[0][0], det->p[0][1], det->p[1][0], det->p[1][1], 0.9f, 0.0f, 0.0f); // Red line from top-left to top-right
-			display->RenderLine(det->p[1][0], det->p[1][1], det->p[2][0], det->p[2][1], 0.0f, 0.9f, 0.0f); // Green line from top-right to bottom-right
-			//display->RenderLine(det->p[2][0], det->p[2][1], det->p[3][0], det->p[3][1], 0.0f, 0.0f, 0.9f); // Blue line from bottom-right to bottom-left
-			//display->RenderLine(det->p[3][0], det->p[3][1], det->p[0][0], det->p[0][1], 0.9f, 0.9f, 0.0f); // Yellow line from bottom-left to top-left
-		}
-	}
-}
 
 int main( int argc, char** argv )
 {
@@ -298,7 +278,12 @@ int main( int argc, char** argv )
 							det->decision_margin > 100.0f ? "(high confidence)" : "(low confidence)");
 					}
 					
-					drawAprilTagAxes(output, det);
+					// Only draw if detection confidence is high enough
+					if( det->decision_margin > 100.0f )
+					{
+						display->RenderLine(det->p[0][0], det->p[0][1], det->p[1][0], det->p[1][1], 0.9f, 0.0f, 0.0f);
+						display->RenderLine(det->p[1][0], det->p[1][1], det->p[2][0], det->p[2][1], 0.0f, 0.9f, 0.0f);
+					}
 				}
 				
 				if( hasHighConfidenceTag )
@@ -319,9 +304,6 @@ int main( int argc, char** argv )
 			if( !output->IsStreaming() )
 				break;
 		}
-
-		// Clean up detections
-		apriltag_detections_destroy(detections);
 	}
 
 	/*
