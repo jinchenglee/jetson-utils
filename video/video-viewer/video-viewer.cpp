@@ -28,6 +28,7 @@
 #include "glUtility.h"  // For GL drawing functions
 #include "mapxpy.h"     // Add include for mapxpy
 #include "NvAnalysis.h" // Add include for remap function
+#include "cudaGrayscale.h" // Add include for cudaRGB8ToGray8
 
 #include <signal.h>
 #include <cuda.h>
@@ -194,25 +195,34 @@ int main( int argc, char** argv )
 
 	LogInfo("Using AprilTag family: %s\n", tag_family_name);
 
-
 	// Initialize CUDA memory for remapping
-	uint8_t* img_src_dev = nullptr;
-	uint8_t* img_dst_dev = nullptr;
+	uint8_t* img_src_gray8_dev = nullptr;
+	uint8_t* img_dst_gray8_dev = nullptr;
 	float *mapxDevPtr, *mapyDevPtr;
 	size_t sizeOfImage = input->GetWidth() * input->GetHeight();
 	size_t pitch = 0;
 
 	// Allocate pitched memory for image processing
-	if( CUDA(cudaMallocPitch(&img_src_dev, &pitch, input->GetWidth() * sizeof(uint8_t), input->GetHeight() * sizeof(uint8_t))) )
-		LogError("cudaMalloc img_src_dev failed!\n");
-	if( CUDA(cudaMallocPitch(&img_dst_dev, &pitch, input->GetWidth() * sizeof(uint8_t), input->GetHeight() * sizeof(uint8_t))) )
-		LogError("cudaMalloc img_dst_dev failed!\n");
+	if( CUDA(cudaMallocPitch(&img_src_gray8_dev, &pitch, input->GetWidth() * sizeof(uint8_t), input->GetHeight() * sizeof(uint8_t))) )
+		LogError("cudaMalloc img_src_gray8_dev failed!\n");
+	if( CUDA(cudaMallocPitch(&img_dst_gray8_dev, &pitch, input->GetWidth() * sizeof(uint8_t), input->GetHeight() * sizeof(uint8_t))) )
+		LogError("cudaMalloc img_dst_gray8_dev failed!\n");
 	
 	// Allocate memory for mapx and mapy
 	if( CUDA(cudaMalloc(&mapxDevPtr, sizeOfImage * sizeof(float))) )
 		LogError("cudaMalloc mapxDevPtr failed!\n");
 	if( CUDA(cudaMalloc(&mapyDevPtr, sizeOfImage * sizeof(float))) )
 		LogError("cudaMalloc mapyDevPtr failed!\n");
+
+	// Allocate pitched memory for RGB image
+	uchar3* image_dev = nullptr;
+	size_t rgb_pitch = 0;
+	if( CUDA_FAILED(cudaMallocPitch(&image_dev, &rgb_pitch, input->GetWidth() * sizeof(uchar3), input->GetHeight())) )
+	{
+		LogError("failed to allocate pitched GPU memory for RGB image\n");
+		SAFE_DELETE(input);
+		return 0;
+	}
 
 	LogInfo("Processing image: %ux%u, pitch: %zu, elements of image: %zu\n", input->GetWidth(), input->GetHeight(), pitch, sizeOfImage);
 
@@ -222,16 +232,16 @@ int main( int argc, char** argv )
 
 	// Create reusable grayscale image buffer
 	image_u8_t im = {
-		.width = input->GetWidth(),
-		.height = input->GetHeight(),
-		.stride = input->GetWidth(),
+		.width = static_cast<int32_t>(input->GetWidth()),
+		.height = static_cast<int32_t>(input->GetHeight()),
+		.stride = static_cast<int32_t>(input->GetWidth()),
 		.buf = new uint8_t[input->GetWidth() * input->GetHeight()]
 	};
 	// Create reusable grayscale image buffer for display
 	image_u8_t im_display = {
-		.width = input->GetWidth(),
-		.height = input->GetHeight(),
-		.stride = input->GetWidth(),
+		.width = static_cast<int32_t>(input->GetWidth()),
+		.height = static_cast<int32_t>(input->GetHeight()),
+		.stride = static_cast<int32_t>(input->GetWidth()),
 		.buf = new uint8_t[input->GetWidth() * input->GetHeight()]
 	};
 	/*
@@ -258,23 +268,26 @@ int main( int argc, char** argv )
 		
 		numFrames++;
 
-		// Convert RGB to grayscale
-		for(int y = 0; y < im.height; y++) {
-			for(int x = 0; x < im.width; x++) {
-				uchar3 pixel = image[y * im.width + x];
-				im.buf[y * im.stride + x] = (uint8_t)((pixel.x * 0.299 + pixel.y * 0.587 + pixel.z * 0.114));
-			}
+		// Copy input image to GPU with pitch
+		if( CUDA_FAILED(cudaMemcpy2D(image_dev, rgb_pitch, image, im.width * sizeof(uchar3), im.width * sizeof(uchar3), im.height, cudaMemcpyHostToDevice)) )
+		{
+			LogError("failed to copy RGB image to GPU\n");
+			break;
+		}
+		
+		// Convert RGB to grayscale on GPU directly to img_src_gray8_dev which is already pitched
+		if( CUDA_FAILED(cudaRGB8ToGray8(image_dev, img_src_gray8_dev, im.width, im.height)) )
+		{
+			LogError("failed to convert RGB to grayscale with CUDA\n");
+			break;
 		}
 
-		// Copy grayscale image to device with pitch
-		cudaMemcpy2D(img_src_dev, pitch, im.buf, im.stride, im.width, im.height, cudaMemcpyHostToDevice);
-
 		// Apply remap for undistortion
-		remap(img_src_dev, img_dst_dev, mapxDevPtr, mapyDevPtr, pitch, im.width, im.height);
+		remap(img_src_gray8_dev, img_dst_gray8_dev, mapxDevPtr, mapyDevPtr, pitch, im.width, im.height);
 		cudaDeviceSynchronize();
 
 		// Copy processed image back to host with pitch
-		cudaMemcpy2D(im_display.buf, im_display.stride, img_dst_dev, pitch, im.width, im.height, cudaMemcpyDeviceToHost);
+		cudaMemcpy2D(im_display.buf, im_display.stride, img_dst_gray8_dev, pitch, im.width, im.height, cudaMemcpyDeviceToHost);
 
 		// Detect AprilTags
 		zarray_t* detections = apriltag_detector_detect(tag_detector, &im_display);
@@ -310,7 +323,7 @@ int main( int argc, char** argv )
 			// Also, please notice the pitch is used to pass in the image.
 			// 
 			// The RenderImage() function has a default y offset of 30.0f. <= hard to debug if not noticed. Explicitly set to 0.0f offsets.
-			display->RenderImage(img_dst_dev, pitch, im.height, IMAGE_GRAY8, 0.0f, 0.0f);
+			display->RenderImage(img_dst_gray8_dev, pitch, im.height, IMAGE_GRAY8, 0.0f, 0.0f);
 
 			// Draw detections on the remapped image
 			int numTags = zarray_size(detections);
@@ -339,8 +352,7 @@ int main( int argc, char** argv )
 					if( numFrames % 90 == 0 )
 					{
 						printf("  Tag %d: id=%d, hamming=%d, margin=%.3f\n", 
-							i, det->id, det->hamming, det->decision_margin,
-							det->decision_margin);
+							i, det->id, det->hamming, det->decision_margin);
 					}
 				}
 				
@@ -382,10 +394,11 @@ int main( int argc, char** argv )
 		highConfidenceTagsDetected, totalTagsDetected > 0 ? (float)highConfidenceTagsDetected/totalTagsDetected*100.0f : 0.0f);
 	
 	// Clean up CUDA resources
-	cudaFree(img_src_dev);
-	cudaFree(img_dst_dev);
+	cudaFree(img_src_gray8_dev);
+	cudaFree(img_dst_gray8_dev);
 	cudaFree(mapxDevPtr);
 	cudaFree(mapyDevPtr);
+	cudaFree(image_dev);  // Free the RGB image buffer here
 
 	// Clean up AprilTag resources
 	apriltag_detector_destroy(tag_detector);
