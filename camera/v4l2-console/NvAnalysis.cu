@@ -37,10 +37,10 @@ decoupleLRKernel(int *pDevPtr, int pitch)
     int col = threadIdx.x;
     int row = blockIdx.x;
 
-    __shared__ char line[IMG_W*2];
+    __shared__ char line[MYNTEYE_IMG_W*2];
 
     // Boundary guard.
-    if ((col > ((IMG_W*2 + 1) / 2)) || (row > (IMG_H -1))) {
+    if ((col > ((MYNTEYE_IMG_W*2 + 1) / 2)) || (row > (MYNTEYE_IMG_H -1))) {
         return;
     }
 
@@ -49,7 +49,7 @@ decoupleLRKernel(int *pDevPtr, int pitch)
     // Use thread 0 of each block to load line into shared mem.
     if ((!col)) {
         // Copy line.
-        memcpy(line, pLineBegin, IMG_W*2);
+        memcpy(line, pLineBegin, MYNTEYE_IMG_W*2);
     }
 
     // Make sure all data are already read before writing.
@@ -59,7 +59,7 @@ decoupleLRKernel(int *pDevPtr, int pitch)
     // Write pixel to correct position.
     // Remember to process two pixels per thread!
     pLineBegin[col] = line[2*col];
-    pLineBegin[(IMG_W*2) / 2 + col] = line[2*col+1];
+    pLineBegin[(MYNTEYE_IMG_W*2) / 2 + col] = line[2*col+1];
 
     __syncthreads();
 
@@ -71,8 +71,8 @@ decoupleLR(CUdeviceptr pDevPtr, int pitch)
 {
     // Process a whole image line per block, but threads per block has 1k limit.
     // So each thread processes two adjacent pixels.
-    dim3 threadsPerBlock((IMG_W*2)/2);
-    dim3 blocks(IMG_H);
+    dim3 threadsPerBlock((MYNTEYE_IMG_W*2)/2);
+    dim3 blocks(MYNTEYE_IMG_H);
 
     //printf("pitch=%d\n", pitch);
     decoupleLRKernel<<<blocks,threadsPerBlock>>>((int *)pDevPtr, pitch);
@@ -82,21 +82,21 @@ decoupleLR(CUdeviceptr pDevPtr, int pitch)
 
 
 // Remap kernel modified from https://github.com/Wizapply/OvrvisionPro/blob/master/build/linux/CUDA/Remap.cu.
-__global__ void remap_kernel(const uint8_t* src, uint8_t* dst, const float* mapx, const float* mapy, int img_pitch)
+__global__ void remap_kernel(const uint8_t* src, uint8_t* dst, const float* mapx, const float* mapy, int img_pitch, int width, int height)
 {
     const int x = blockDim.x * blockIdx.x + threadIdx.x;
     const int y = blockDim.y * blockIdx.y + threadIdx.y;
 
-    if (x < IMG_W && y < IMG_H)
+    if (x < width && y < height)
     {
-        int step = y * IMG_W + x;
+        int step = y * width + x;
         float xcoo = mapx[step];
         float ycoo = mapy[step];
         int X = trunc(xcoo);
         int Y = trunc(ycoo);
         float xfrac = xcoo - X;
         float yfrac = ycoo - Y;
-        if (0 <= X && X < IMG_W && 0 <= Y && Y < IMG_H)
+        if (0 <= X && X < width && 0 <= Y && Y < height)
         {
             int p00 = src[Y * img_pitch + X];
             int p10 = src[(Y + 1) * img_pitch + X];
@@ -111,12 +111,12 @@ __global__ void remap_kernel(const uint8_t* src, uint8_t* dst, const float* mapx
     }
 }
 
-int remap(const uint8_t* src, uint8_t* dst, const float* mapx, const float* mapy, int img_pitch)
+int remap(const uint8_t* src, uint8_t* dst, const float* mapx, const float* mapy, int img_pitch, int width, int height)
 {
     dim3 threadsPerBlock(16, 16);
-    dim3 blocks((IMG_W + 15) / (threadsPerBlock.x), (IMG_H + 15) / (threadsPerBlock.y));
+    dim3 blocks((width + 15) / (threadsPerBlock.x), (height + 15) / (threadsPerBlock.y));
 
-    remap_kernel<<<blocks, threadsPerBlock>>>(src, dst, mapx, mapy, img_pitch);
+    remap_kernel<<<blocks, threadsPerBlock>>>(src, dst, mapx, mapy, img_pitch, width, height);
 
     return 0;
 }

@@ -150,10 +150,10 @@ int main( int argc, char** argv )
     
     printf("\nv4l2-console:  camera '%s' open for streaming\n", dev_path);
 
-    assert(camera->GetPitch() == IMG_W*2);
-    assert(camera->GetHeight() == IMG_H);
-    int height = IMG_H;
-    int width = IMG_W;
+    assert(camera->GetPitch() == MYNTEYE_IMG_W*2);
+    assert(camera->GetHeight() == MYNTEYE_IMG_H);
+    int height = MYNTEYE_IMG_H;
+    int width = MYNTEYE_IMG_W;
     size_t sizeOfImage = width * height;
 
     // malloc() apriltag image on Host
@@ -227,7 +227,7 @@ int main( int argc, char** argv )
             // CUDA proc
             decoupleLR((CUdeviceptr) img_dev, width*2);
             cudaDeviceSynchronize();
-            remap(img_dev, img_dev + width, mapxDevPtr, mapyDevPtr, width*2);
+            remap(img_dev, img_dev + width, mapxDevPtr, mapyDevPtr, width*2, width, height);
             cudaDeviceSynchronize();
             //printf("CUDA kernels done.\n");
 
@@ -288,12 +288,12 @@ int main( int argc, char** argv )
 
                     //printf("det->decision_margin = %f.\n", det->decision_margin);
                 
-                    if (det->decision_margin > 100.f) {
+                    if (det->decision_margin > 30.f) {
                         printf("detection %3d: id (%2dx%2d)-%-4d, hamming %d, margin %8.3f\n",
                             i, det->family->nbits, det->family->h, det->id, det->hamming, det->decision_margin);
 
                         display->RenderLine(det->p[1][0], det->p[1][1], det->p[0][0], det->p[0][1], 0.9f, 0.f, 0.f);
-                        display->RenderLine(det->p[0][0], det->p[0][1], det->p[3][0], det->p[3][1], 0.f, 0.9f, 0.f);
+                        display->RenderLine(det->p[3][0], det->p[3][1], det->p[0][0], det->p[0][1], 0.f, 0.9f, 0.f);
                     }
                 }
 
