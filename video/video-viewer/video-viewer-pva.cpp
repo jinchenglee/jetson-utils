@@ -178,7 +178,6 @@ int main(int argc, char** argv)
 
 
     // Initialize VPI resources
-    VPIImage imgInput = NULL;
     VPIImage imgGrayscale = NULL;
     VPIArray detections = NULL;
     VPIArray poses = NULL;
@@ -190,7 +189,6 @@ int main(int argc, char** argv)
         CHECK_STATUS(vpiStreamCreate(0, &stream));
 
         // Create VPI images directly from RGB8 format
-        CHECK_STATUS(vpiImageCreate(input->GetWidth(), input->GetHeight(), VPI_IMAGE_FORMAT_RGB8, 0, &imgInput));
         CHECK_STATUS(vpiImageCreate(input->GetWidth(), input->GetHeight(), VPI_IMAGE_FORMAT_U8, 0, &imgGrayscale));
 
         // Create detection and pose arrays
@@ -217,14 +215,6 @@ int main(int argc, char** argv)
         };
         const float tagSize = 0.2f;
 
-        // Initialize CUDA memory for grayscale conversion
-        uint8_t* img_gray8_dev = nullptr;
-        size_t pitch = 0;
-        if (CUDA_FAILED(cudaMallocPitch(&img_gray8_dev, &pitch, input->GetWidth() * sizeof(uint8_t), input->GetHeight() * sizeof(uint8_t)))) {
-            LogError("Failed to allocate CUDA memory for grayscale image\n");
-            return 0;
-        }
-
         // Main processing loop
         uint32_t numFrames = 0;
         uint32_t framesWithTags = 0;
@@ -247,12 +237,6 @@ int main(int argc, char** argv)
 		    	break;
 		    }
 	
-            // Convert RGB to grayscale on GPU
-            if (CUDA_FAILED(cudaRGB8ToGray8(image_dev, img_gray8_dev, input->GetWidth(), input->GetHeight()))) {
-                LogError("Failed to convert RGB to grayscale\n");
-                break;
-            }
-
             // Import grayscale data directly into VPI image
             VPIImageData imgData;
             CHECK_STATUS(vpiImageLockData(imgGrayscale, VPI_LOCK_WRITE, VPI_IMAGE_BUFFER_CUDA_PITCH_LINEAR, &imgData));
@@ -267,18 +251,12 @@ int main(int argc, char** argv)
             //LogInfo("  VPI pitch: %zu bytes\n", vpiPitch);
             //LogInfo("  Image width: %d pixels (%d bytes)\n", input->GetWidth(), input->GetWidth() * sizeof(uint8_t));
 
-            // Copy the entire image at once using cudaMemcpy2D
-            if (CUDA_FAILED(cudaMemcpy2D(
-                vpiData,                    // destination
-                vpiPitch,                  // destination pitch
-                img_gray8_dev,             // source
-                pitch,                     // source pitch
-                input->GetWidth(),         // width in bytes
-                input->GetHeight(),        // height
-                cudaMemcpyDeviceToDevice))) {
-                LogError("Failed to copy grayscale data to VPI image\n");
-                return 0;
+            // Convert RGB to grayscale on GPU
+            if (CUDA_FAILED(cudaRGB8ToGray8(image_dev, vpiData, input->GetWidth(), input->GetHeight()))) {
+                LogError("Failed to convert RGB to grayscale\n");
+                break;
             }
+
             CHECK_STATUS(vpiImageUnlock(imgGrayscale));
 
             // Detect AprilTags
@@ -304,7 +282,7 @@ int main(int argc, char** argv)
                 display->BeginRender();
 
                 // Render grayscale image
-                display->RenderImage(img_gray8_dev, pitch, input->GetHeight(), IMAGE_GRAY8, 0.0f, 0.0f);
+                display->RenderImage(vpiData, vpiPitch, input->GetHeight(), IMAGE_GRAY8, 0.0f, 0.0f);
 
                 // Draw detections
                 if (numDetections > 0) {
@@ -331,11 +309,7 @@ int main(int argc, char** argv)
             CHECK_STATUS(vpiArrayUnlock(detections));
         }
 
-        // Clean up CUDA resources
-        cudaFree(img_gray8_dev);
-
         // Clean up VPI resources
-        vpiImageDestroy(imgInput);
         vpiImageDestroy(imgGrayscale);
         vpiArrayDestroy(detections);
         vpiArrayDestroy(poses);
