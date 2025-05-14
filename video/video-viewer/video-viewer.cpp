@@ -64,10 +64,12 @@ int usage()
 	printf("See below for additional arguments that may not be shown above.\n\n");
 	printf("positional arguments:\n");
 	printf("    input_URI       resource URI of input stream  (see videoSource below)\n\n");
+	printf("    output_URI      resource URI of output stream (see videoOutput below)\n\n");
 	printf("optional arguments:\n");
 	printf("    --tag-family    AprilTag family to detect (36h11 or 16h5, default: 36h11)\n\n");
 
 	printf("%s", videoSource::Usage());
+	printf("%s", videoOutput::Usage());
 	printf("%s", Log::Usage());
 
 	return 0;
@@ -165,6 +167,16 @@ int main( int argc, char** argv )
 		LogError("video-viewer:  failed to capture input image\n");
 		SAFE_DELETE(input);
 		return 0;
+	}
+
+	/*
+	 * create output video stream
+	 */
+	videoOutput* output = videoOutput::Create(cmdLine, ARG_POSITION(1));
+	if( !output )
+	{
+	  LogError("video-viewer: failed to create output stream\\n");
+	  return 0;
 	}
 
 	/*
@@ -375,6 +387,21 @@ int main( int argc, char** argv )
 				break;
 		}
 
+		if( output != NULL )
+		{
+		  output->Render(image, input->GetWidth(), input->GetHeight());
+		
+		  // update status bar
+		  char str[256];
+		  sprintf(str, "Video Viewer Output (%ux%u) | %.1f FPS", input->GetWidth(), 
+		              input->GetHeight(), output->GetFrameRate());
+		  output->SetStatus(str);
+		
+		  // check if the user quit
+		  if( !output->IsStreaming() )
+		     break;
+		}
+
 		// Clean up detections
 		apriltag_detections_destroy(detections);
 	}
@@ -411,6 +438,7 @@ int main( int argc, char** argv )
 	delete[] im.buf;
 	
 	SAFE_DELETE(input);
+	SAFE_DELETE(output);
 	SAFE_DELETE(display);
 
 	printf("video-viewer:  shutdown complete\n");
