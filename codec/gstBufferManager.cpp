@@ -130,7 +130,7 @@ bool gstBufferManager::Enqueue( GstBuffer* gstBuffer, GstCaps* gstCaps )
 		LogError(LOG_GSTREAMER "gstBufferManager -- gst_caps missing width/height...\n");
 		return false;
 	}
-	
+
 	if( width < 1 || height < 1 )
 		return false;
 	
@@ -156,7 +156,7 @@ bool gstBufferManager::Enqueue( GstBuffer* gstBuffer, GstCaps* gstCaps )
 #ifdef ENABLE_NVMM
 	// check for NVMM buffer	
 	GstCapsFeatures* gstCapsFeatures = gst_caps_get_features(gstCaps, 0);
-	
+
 	if( gst_caps_features_contains(gstCapsFeatures, GST_CAPS_FEATURE_MEMORY_NVMM))
 	{
 		mNvmmUsed = true;
@@ -424,7 +424,7 @@ int gstBufferManager::Dequeue( void** output, imageFormat format, uint64_t timeo
 	}
 
 	// output raw image if conversion format is unknown
-	if ( format == IMAGE_UNKNOWN )
+	if (( format == IMAGE_UNKNOWN ) || ( format == IMAGE_NV12 ))
 	{
 		*output = latestYUV;
 		return 1;

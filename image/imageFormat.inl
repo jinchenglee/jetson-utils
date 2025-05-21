@@ -235,6 +235,7 @@ template<typename T> inline imageFormat imageFormatFromType()
 	return IMAGE_UNKNOWN;
 }
 
+template<> inline imageFormat imageFormatFromType<uint8_t>() { return IMAGE_NV12; }
 template<> inline imageFormat imageFormatFromType<uchar3>()	{ return IMAGE_RGB8; }
 template<> inline imageFormat imageFormatFromType<uchar4>()	{ return IMAGE_RGBA8; }
 template<> inline imageFormat imageFormatFromType<float3>()	{ return IMAGE_RGB32F; }

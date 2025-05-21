@@ -17,6 +17,10 @@ include_directories(${VPI_INCLUDE_DIRS})
 add_executable(video-viewer video-viewer.cpp)
 target_link_libraries(video-viewer jetson-utils apriltag local-cuda)
 
+# Build video-viewer-raw
+add_executable(video-viewer-raw video-viewer-raw.cpp)
+target_link_libraries(video-viewer-raw jetson-utils apriltag local-cuda)
+
 # Build video-viewer-pva
 add_executable(video-viewer-pva video-viewer-pva.cpp)
 target_link_libraries(video-viewer-pva vpi opencv_core opencv_imgproc opencv_imgcodecs opencv_videoio jetson-utils local-cuda ${VPI_LIBRARIES})

@@ -68,16 +68,15 @@ else()
 
 endif()
 
-#<<JC>> # option for enabling/disabling NVMM memory in multimedia stack
-#<<JC>> find_library(NVBUF_UTILS NAMES nvbuf_utils PATHS /usr/lib/aarch64-linux-gnu/tegra)
-#<<JC>> message("-- nvbuf_utils:  ${NVBUF_UTILS}")
-#<<JC>> 
-#<<JC>> if(NVBUF_UTILS)
-#<<JC>> 	set(ENABLE_NVMM_DEFAULT ON)
-#<<JC>> else()
-#<<JC>> 	set(ENABLE_NVMM_DEFAULT OFF)
-#<<JC>> endif()
-set(ENABLE_NVMM_DEFAULT ON)
+# option for enabling/disabling NVMM memory in multimedia stack
+find_library(NVBUF_UTILS NAMES nvbuf_utils PATHS /usr/lib/aarch64-linux-gnu/tegra)
+message("-- nvbuf_utils:  ${NVBUF_UTILS}")
+
+if(NVBUF_UTILS)
+	set(ENABLE_NVMM_DEFAULT ON)
+else()
+	set(ENABLE_NVMM_DEFAULT OFF)
+endif()
 
 option(ENABLE_NVMM "Enable use of NVMM zero-copy memory in video and camera streaming" ${ENABLE_NVMM_DEFAULT})
 message("-- NVMM zero-copy memory:  ENABLE_NVMM=${ENABLE_NVMM}")
@@ -137,8 +136,8 @@ add_subdirectory(video/video-viewer)
 add_subdirectory(camera/v4l2-console)
 add_subdirectory(camera/camera-viewer)
 add_subdirectory(display/gl-display-test)
-add_subdirectory(network/webrtc-server)
-add_subdirectory(network/rtsp-server)
+#add_subdirectory(network/webrtc-server)
+#add_subdirectory(network/rtsp-server)
 
 # Weired missing packages need explicit find_package()
 find_package(Eigen3 REQUIRED)

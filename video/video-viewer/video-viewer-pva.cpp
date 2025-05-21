@@ -145,7 +145,8 @@ int main(int argc, char** argv)
     }
 
     // Dry-run the input stream to get the image size
-    uchar3* image = NULL;
+    //uchar3* image = NULL;
+    uint8_t* image = NULL;
     int status = 0;
     if (!input->Capture(&image, &status)) {
         LogError("video-viewer-pva: failed to capture input image\n");
@@ -166,16 +167,15 @@ int main(int argc, char** argv)
         return 0;
     }
 
-	// Allocate pitched memory for RGB image
-	uchar3* image_dev = nullptr;
-	size_t rgb_pitch = 0;
-	if( CUDA_FAILED(cudaMallocPitch(&image_dev, &rgb_pitch, input->GetWidth() * sizeof(uchar3), input->GetHeight())) )
+	// Allocate pitched memory for grayscale image
+	uint8_t* image_dev = nullptr;
+	size_t gray_pitch = 0;
+	if( CUDA_FAILED(cudaMallocPitch(&image_dev, &gray_pitch, input->GetWidth() * sizeof(uint8_t), input->GetHeight())) )
 	{
-		LogError("failed to allocate pitched GPU memory for RGB image\n");
+		LogError("failed to allocate pitched GPU memory for grayscale image\n");
 		SAFE_DELETE(input);
 		return 0;
 	}
-
 
     // Initialize VPI resources
     VPIImage imgGrayscale = NULL;
@@ -196,6 +196,8 @@ int main(int argc, char** argv)
         CHECK_STATUS(vpiArrayCreate(maxDetections, VPI_ARRAY_TYPE_APRILTAG_DETECTION, VPI_BACKEND_CPU | VPI_BACKEND_PVA, &detections));
         CHECK_STATUS(vpiArrayCreate(maxDetections, VPI_ARRAY_TYPE_POSE, VPI_BACKEND_CPU | VPI_BACKEND_PVA, &poses));
 
+        // CPU backend is actually faster than PVA backend.
+        // On Orin NX 16GB. CPU backend takes ~6ms, PVA backend takes ~8.6ms.
         auto backend = VPI_BACKEND_CPU;
         //auto backend = VPI_BACKEND_PVA;
         auto strBackend = "cpu";
@@ -230,13 +232,6 @@ int main(int argc, char** argv)
 
             numFrames++;
 
-		    // Copy input image to GPU with pitch
-		    if( CUDA_FAILED(cudaMemcpy2D(image_dev, rgb_pitch, image, input->GetWidth() * sizeof(uchar3), input->GetWidth() * sizeof(uchar3), input->GetHeight(), cudaMemcpyHostToDevice)) )
-		    {
-		    	LogError("failed to copy RGB image to GPU\n");
-		    	break;
-		    }
-	
             // Import grayscale data directly into VPI image
             VPIImageData imgData;
             CHECK_STATUS(vpiImageLockData(imgGrayscale, VPI_LOCK_WRITE, VPI_IMAGE_BUFFER_CUDA_PITCH_LINEAR, &imgData));
@@ -245,18 +240,14 @@ int main(int argc, char** argv)
             uint8_t* vpiData = (uint8_t*)imgData.buffer.pitch.planes[0].data;
             size_t vpiPitch = imgData.buffer.pitch.planes[0].pitchBytes;
 
-            // Debug: Print pitch information
-            //LogInfo("Copy debug info:\n");
-            //LogInfo("  Source pitch: %zu bytes\n", pitch);
-            //LogInfo("  VPI pitch: %zu bytes\n", vpiPitch);
-            //LogInfo("  Image width: %d pixels (%d bytes)\n", input->GetWidth(), input->GetWidth() * sizeof(uint8_t));
-
-            // Convert RGB to grayscale on GPU
-            if (CUDA_FAILED(cudaRGB8ToGray8(image_dev, vpiData, input->GetWidth(), input->GetHeight()))) {
-                LogError("Failed to convert RGB to grayscale\n");
-                break;
-            }
-
+		    // Copy input image to GPU with pitch
+            // TODO: FIXME: Use remap() kernel to replace the cuda memcpy.
+		    if( CUDA_FAILED(cudaMemcpy2D(vpiData, gray_pitch, image, input->GetWidth() * sizeof(uint8_t), input->GetWidth() * sizeof(uint8_t), input->GetHeight(), cudaMemcpyDeviceToDevice)) )
+		    {
+		    	LogError("failed to copy grayscale image to GPU\n");
+		    	break;
+		    }
+	
             CHECK_STATUS(vpiImageUnlock(imgGrayscale));
 
             // Detect AprilTags

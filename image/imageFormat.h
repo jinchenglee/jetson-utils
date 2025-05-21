@@ -217,8 +217,10 @@ inline void imageFormatErrorMsg( const char* module, const char* function, image
 
 ///@{
 
-// get the IMAGE_RGB* formats from uchar3/uchar4/float3/float4
+// get the IMAGE_RGB* formats from uint8/uchar3/uchar4/float3/float4
 template<typename T> inline imageFormat imageFormatFromType();
+
+template<> inline imageFormat imageFormatFromType<uint8_t>();
 
 template<> inline imageFormat imageFormatFromType<uchar3>();
 template<> inline imageFormat imageFormatFromType<uchar4>();
@@ -227,6 +229,8 @@ template<> inline imageFormat imageFormatFromType<float4>();
 
 // templated version of base type / vector type
 template<imageFormat format> struct imageFormatType;
+
+template<> struct imageFormatType<IMAGE_NV12>    { typedef uint8_t Base; typedef uint8_t Vector; };
 
 template<> struct imageFormatType<IMAGE_RGB8>    { typedef uint8_t Base; typedef uchar3 Vector; };
 template<> struct imageFormatType<IMAGE_RGBA8>   { typedef uint8_t Base; typedef uchar4 Vector; };
