@@ -198,8 +198,8 @@ int main(int argc, char** argv)
 
         // CPU backend is actually faster than PVA backend.
         // On Orin NX 16GB. CPU backend takes ~6ms, PVA backend takes ~8.6ms.
-        auto backend = VPI_BACKEND_CPU;
-        //auto backend = VPI_BACKEND_PVA;
+        //auto backend = VPI_BACKEND_CPU;
+        auto backend = VPI_BACKEND_PVA;
         auto strBackend = "cpu";
         if (backend == VPI_BACKEND_PVA) {
             strBackend = "pva";

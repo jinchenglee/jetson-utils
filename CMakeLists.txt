@@ -129,6 +129,8 @@ add_subdirectory(python)
 
 # Add AprilTag submodule first
 add_subdirectory(3rd_party/apriltag)
+# Add cuda_apriltag submodule
+add_subdirectory(3rd_party/cuda_apriltag)
 
 # Then add video-viewer which depends on AprilTag
 add_subdirectory(video/video-viewer)
