@@ -151,19 +151,19 @@ bool gstCamera::buildLaunchStr()
 	#endif
 	
 	#if NV_TENSORRT_MAJOR > 4
-		// on newer JetPack's, it's common for CSI camera to need flipped
-		// so here we reverse FLIP_NONE with FLIP_ROTATE_180
-		if( mOptions.flipMethod == videoOptions::FLIP_NONE )
-			mOptions.flipMethod = videoOptions::FLIP_ROTATE_180;
-		else if( mOptions.flipMethod == videoOptions::FLIP_ROTATE_180 )
-			mOptions.flipMethod = videoOptions::FLIP_NONE;
+		//<<JC>> // on newer JetPack's, it's common for CSI camera to need flipped
+		//<<JC>> // so here we reverse FLIP_NONE with FLIP_ROTATE_180
+		//<<JC>> if( mOptions.flipMethod == videoOptions::FLIP_NONE )
+		//<<JC>> 	mOptions.flipMethod = videoOptions::FLIP_ROTATE_180;
+		//<<JC>> else if( mOptions.flipMethod == videoOptions::FLIP_ROTATE_180 )
+		//<<JC>> 	mOptions.flipMethod = videoOptions::FLIP_NONE;
 	
 		ss << "nvarguscamerasrc sensor-id=" << mOptions.resource.port << " ! video/x-raw(memory:NVMM), width=(int)" << GetWidth() << ", height=(int)" << GetHeight() << ", framerate=" << (int)mOptions.frameRate << "/1, format=(string)NV12 ! nvvidconv flip-method=" << mOptions.flipMethod << " ! ";
 	#else
 		// older JetPack versions use nvcamerasrc element instead of nvarguscamerasrc
 		ss << "nvcamerasrc fpsRange=\"" << (int)mOptions.frameRate << " " << (int)mOptions.frameRate << "\" ! video/x-raw(memory:NVMM), width=(int)" << GetWidth() << ", height=(int)" << GetHeight() << ", format=(string)NV12 ! nvvidconv flip-method=" << mOptions.flipMethod << " ! "; //'video/x-raw(memory:NVMM), width=(int)1920, height=(int)1080, format=(string)I420, framerate=(fraction)30/1' ! ";
 	#endif
-	
+
 		ss << (enable_nvmm ? "video/x-raw(memory:NVMM) ! " : "video/x-raw ! "); 
 		ss << "appsink name=mysink";
 	}
