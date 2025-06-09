@@ -31,6 +31,7 @@
 #include <cuda.h>
 #include <iostream>
 #include <sstream>
+#include <math.h>
 
 // VPI includes
 //#include <vpi/OpenCVInterop.hpp>
@@ -81,6 +82,7 @@ int usage()
         }                                                     \
     } while (0);
 
+#if 0 // Old method to draw AprilTag detections directly on image.
 // Function to draw AprilTag detections
 void drawAprilTagDetections(glDisplay* display, VPIAprilTagDetection* detections, VPIPose* poses, int numDetections)
 {
@@ -110,6 +112,134 @@ void drawAprilTagDetections(glDisplay* display, VPIAprilTagDetection* detections
             float height = 20;
             display->RenderRect(x, y, width, height, 0.0f, 0.0f, 0.0f, 0.5f); // Semi-transparent black background
             display->RenderOutline(x, y, width, height, 0.0f, 1.0f, 0.0f); // Green outline
+        }
+    }
+}
+#endif
+
+// Function to draw AprilTag detections
+void drawAprilTagDetectionsNew(glDisplay* display, VPIAprilTagDetection* detections, VPIPose* poses, int numDetections, 
+                          float fx, float fy, float cx, float cy)
+{
+    for (int i = 0; i < numDetections; ++i) {
+        const VPIAprilTagDetection& det = detections[i];
+        const VPIPose& pose = poses[i];
+
+        // Only draw high confidence detections
+        if (det.decisionMargin > 30.0f) {
+            // Draw complete tag outline
+            display->RenderLine(det.corners[0].x, det.corners[0].y, 
+                              det.corners[1].x, det.corners[1].y, 
+                              0.9f, 0.0f, 0.0f); // Red line from top-left to top-right
+            
+            display->RenderLine(det.corners[1].x, det.corners[1].y, 
+                              det.corners[2].x, det.corners[2].y, 
+                              0.0f, 0.9f, 0.0f); // Green line from top-right to bottom-right
+            
+            //display->RenderLine(det.corners[2].x, det.corners[2].y, 
+            //                  det.corners[3].x, det.corners[3].y, 
+            //                  0.0f, 0.0f, 0.9f); // Blue line from bottom-right to bottom-left
+            
+            //display->RenderLine(det.corners[3].x, det.corners[3].y, 
+            //                  det.corners[0].x, det.corners[0].y, 
+            //                  0.9f, 0.9f, 0.0f); // Yellow line from bottom-left to top-left
+
+            //// Draw center cross using lines
+            //float crossSize = 5.0f;
+            //display->RenderLine(det.center.x - crossSize, det.center.y,
+            //                  det.center.x + crossSize, det.center.y,
+            //                  1.0f, 1.0f, 1.0f); // White horizontal line
+            //display->RenderLine(det.center.x, det.center.y - crossSize,
+            //                  det.center.x, det.center.y + crossSize,
+            //                  1.0f, 1.0f, 1.0f); // White vertical line
+
+            // Draw coordinate axes using the pose transformation
+            const float axisLength = 0.1f; // Length of coordinate axes in meters (10cm)
+            
+            // Define 3D points for the coordinate axes (in tag's coordinate system)
+            float3 origin = {0.0f, 0.0f, 0.0f};
+            float3 xAxis = {axisLength, 0.0f, 0.0f};
+            float3 yAxis = {0.0f, axisLength, 0.0f};
+            float3 zAxis = {0.0f, 0.0f, -1.0f * axisLength};
+
+            // Define cube corners (in tag's coordinate system)
+            // Using the same scale as axisLength for consistency
+            float3 cubeCorners[8] = {
+                {-axisLength, -axisLength, 0.0f},           // 0: origin
+                {axisLength, -axisLength, 0.0f},            // 1: x
+                {-axisLength, axisLength, 0.0f},            // 2: y
+                {axisLength, axisLength, 0.0f},             // 3: x+y
+                {-axisLength, -axisLength, -2.f * axisLength},                               // 4: z
+                {axisLength, -axisLength, -2.f * axisLength},     // 5: x+z
+                {-axisLength, axisLength, -2.f * axisLength},     // 6: y+z
+                {axisLength, axisLength, -2.f * axisLength}       // 7: x+y+z
+            };
+
+            // Project 3D points to 2D using the pose transformation and camera intrinsics
+            float2 origin2D, xAxis2D, yAxis2D, zAxis2D;
+            
+            // Helper function to project a 3D point to 2D
+            auto projectPoint = [&pose, fx, fy, cx, cy](const float3& point3D) -> float2 {
+                // Transform point from tag's coordinate system to camera's coordinate system
+                float x = point3D.x * pose.transform[0][0] + point3D.y * pose.transform[0][1] + point3D.z * pose.transform[0][2] + pose.transform[0][3];
+                float y = point3D.x * pose.transform[1][0] + point3D.y * pose.transform[1][1] + point3D.z * pose.transform[1][2] + pose.transform[1][3];
+                float z = point3D.x * pose.transform[2][0] + point3D.y * pose.transform[2][1] + point3D.z * pose.transform[2][2] + pose.transform[2][3];
+                
+                // Project to image plane using camera intrinsics
+                float u = (x * fx / z) + cx;
+                float v = (y * fy / z) + cy;
+                
+                return {u, v};
+            };
+
+            // Project all points
+            origin2D = projectPoint(origin);
+            xAxis2D = projectPoint(xAxis);
+            yAxis2D = projectPoint(yAxis);
+            zAxis2D = projectPoint(zAxis);
+
+            // Project cube corners
+            float2 cubeCorners2D[8];
+            for(int i = 0; i < 8; i++) {
+                cubeCorners2D[i] = projectPoint(cubeCorners[i]);
+            }
+
+            // Print transformed coordinates
+            printf("\nTag %d Pose Debug:\n", det.id);
+            printf("Transform Matrix (Tag to Camera):\n");
+            printf("[%f %f %f %f]\n", pose.transform[0][0], pose.transform[0][1], pose.transform[0][2], pose.transform[0][3]);
+            printf("[%f %f %f %f]\n", pose.transform[1][0], pose.transform[1][1], pose.transform[1][2], pose.transform[1][3]);
+            printf("[%f %f %f %f]\n", pose.transform[2][0], pose.transform[2][1], pose.transform[2][2], pose.transform[2][3]);
+            printf("\nProjected Points (in pixels):\n");
+            printf("Origin: (%.2f, %.2f)\n", origin2D.x, origin2D.y);
+            printf("X-axis: (%.2f, %.2f)\n", xAxis2D.x, xAxis2D.y);
+            printf("Y-axis: (%.2f, %.2f)\n", yAxis2D.x, yAxis2D.y);
+            printf("Z-axis: (%.2f, %.2f)\n", zAxis2D.x, zAxis2D.y);
+            printf("Error: %f\n", pose.error);
+
+            // Draw coordinate axes
+            display->RenderLine(origin2D.x, origin2D.y, xAxis2D.x, xAxis2D.y, 1.0f, 0.0f, 0.0f); // X-axis in red
+            display->RenderLine(origin2D.x, origin2D.y, yAxis2D.x, yAxis2D.y, 0.0f, 1.0f, 0.0f); // Y-axis in green
+            display->RenderLine(origin2D.x, origin2D.y, zAxis2D.x, zAxis2D.y, 0.0f, 0.0f, 1.0f); // Z-axis in blue
+
+            // Draw cube edges (12 lines)
+            // Bottom face
+            display->RenderLine(cubeCorners2D[0].x, cubeCorners2D[0].y, cubeCorners2D[1].x, cubeCorners2D[1].y, 1.0f, 1.0f, 1.0f); // 0-1
+            display->RenderLine(cubeCorners2D[1].x, cubeCorners2D[1].y, cubeCorners2D[3].x, cubeCorners2D[3].y, 1.0f, 1.0f, 1.0f); // 1-3
+            display->RenderLine(cubeCorners2D[3].x, cubeCorners2D[3].y, cubeCorners2D[2].x, cubeCorners2D[2].y, 1.0f, 1.0f, 1.0f); // 3-2
+            display->RenderLine(cubeCorners2D[2].x, cubeCorners2D[2].y, cubeCorners2D[0].x, cubeCorners2D[0].y, 1.0f, 1.0f, 1.0f); // 2-0
+
+            // Top face
+            display->RenderLine(cubeCorners2D[4].x, cubeCorners2D[4].y, cubeCorners2D[5].x, cubeCorners2D[5].y, 1.0f, 1.0f, 1.0f); // 4-5
+            display->RenderLine(cubeCorners2D[5].x, cubeCorners2D[5].y, cubeCorners2D[7].x, cubeCorners2D[7].y, 1.0f, 1.0f, 1.0f); // 5-7
+            display->RenderLine(cubeCorners2D[7].x, cubeCorners2D[7].y, cubeCorners2D[6].x, cubeCorners2D[6].y, 1.0f, 1.0f, 1.0f); // 7-6
+            display->RenderLine(cubeCorners2D[6].x, cubeCorners2D[6].y, cubeCorners2D[4].x, cubeCorners2D[4].y, 1.0f, 1.0f, 1.0f); // 6-4
+
+            // Vertical edges
+            display->RenderLine(cubeCorners2D[0].x, cubeCorners2D[0].y, cubeCorners2D[4].x, cubeCorners2D[4].y, 1.0f, 1.0f, 1.0f); // 0-4
+            display->RenderLine(cubeCorners2D[1].x, cubeCorners2D[1].y, cubeCorners2D[5].x, cubeCorners2D[5].y, 1.0f, 1.0f, 1.0f); // 1-5
+            display->RenderLine(cubeCorners2D[2].x, cubeCorners2D[2].y, cubeCorners2D[6].x, cubeCorners2D[6].y, 1.0f, 1.0f, 1.0f); // 2-6
+            display->RenderLine(cubeCorners2D[3].x, cubeCorners2D[3].y, cubeCorners2D[7].x, cubeCorners2D[7].y, 1.0f, 1.0f, 1.0f); // 3-7
         }
     }
 }
@@ -279,7 +409,7 @@ int main(int argc, char** argv)
                 if (numDetections > 0) {
                     framesWithTags++;
                     totalTagsDetected += numDetections;
-                    drawAprilTagDetections(display, outDetections, outPoses, numDetections);
+                    drawAprilTagDetectionsNew(display, outDetections, outPoses, numDetections, input->GetWidth() / 3.5f, input->GetHeight() / 3.6f, input->GetWidth() / 2.0f, input->GetHeight() / 2.0f);
                 }
 
                 display->EndRender();
